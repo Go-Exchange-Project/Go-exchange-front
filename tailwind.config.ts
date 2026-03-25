@@ -13,6 +13,9 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['"Pretendard"', '"Noto Sans KR"', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -46,6 +49,18 @@ export default {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        trading: {
+          buy: "hsl(var(--trading-buy))",
+          "buy-bg": "hsl(var(--trading-buy-bg))",
+          sell: "hsl(var(--trading-sell))",
+          "sell-bg": "hsl(var(--trading-sell-bg))",
+          up: "hsl(var(--trading-up))",
+          down: "hsl(var(--trading-down))",
+          surface: "hsl(var(--trading-surface))",
+          "surface-hover": "hsl(var(--trading-surface-hover))",
+          header: "hsl(var(--trading-header))",
+          border: "hsl(var(--trading-border))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

@@ -1,16 +1,100 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useEffect, useRef, useCallback } from "react";
+import Header from "@/components/trading/Header";
+import CoinList from "@/components/trading/CoinList";
+import TradingChart from "@/components/trading/TradingChart";
+import OrderBook from "@/components/trading/OrderBook";
+import OrderForm from "@/components/trading/OrderForm";
+import TradeHistory from "@/components/trading/TradeHistory";
+import { mockCoins, generateOrderBook } from "@/components/trading/mockData";
 
-// IMPORTANT: Fully REPLACE this with your own code
-const PlaceholderIndex = () => {
-  // PLACEHOLDER: Replace this entire return statement with the user's app.
-  // The inline background color is intentionally not part of the design system.
+const Index = () => {
+  const [selectedSymbol, setSelectedSymbol] = useState("BTC");
+  const [orderPrice, setOrderPrice] = useState(0);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const selectedCoin = mockCoins.find((c) => c.symbol === selectedSymbol) || mockCoins[0];
+  const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
+  const orderBook = generateOrderBook(currentPrice);
+
+  useEffect(() => {
+    setCurrentPrice(selectedCoin.price);
+    setOrderPrice(selectedCoin.price);
+  }, [selectedSymbol]);
+
+  // WebSocket connection
+  useEffect(() => {
+    try {
+      const ws = new WebSocket("ws://localhost:8080/ws");
+      wsRef.current = ws;
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "ticker") {
+          setCurrentPrice(data.price);
+        }
+      };
+      ws.onerror = () => {};
+      return () => ws.close();
+    } catch {
+      // WS not available
+    }
+  }, []);
+
+  const handlePriceClick = useCallback((price: number) => {
+    setOrderPrice(price);
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#fcfbf8' }}>
-      <img data-lovable-blank-page-placeholder="REMOVE_THIS" src="/placeholder.svg" alt="Your app will live here!" />
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
+      <Header />
+      <div className="flex-1 flex min-h-0">
+        {/* Right coin list - 20% */}
+        <div className="w-[280px] min-w-[240px] flex-shrink-0">
+          <CoinList
+            coins={mockCoins}
+            selectedSymbol={selectedSymbol}
+            onSelect={setSelectedSymbol}
+          />
+        </div>
+
+        {/* Center - Chart + OrderBook */}
+        <div className="flex-1 flex flex-col min-w-0 border-r border-trading-border">
+          {/* Chart - top 60% */}
+          <div className="h-[55%] border-b border-trading-border">
+            <TradingChart
+              symbol={selectedSymbol}
+              currentPrice={currentPrice}
+              change={selectedCoin.change}
+            />
+          </div>
+          {/* OrderBook + Trade history */}
+          <div className="flex-1 flex min-h-0">
+            <div className="flex-1 overflow-hidden">
+              <OrderBook
+                asks={orderBook.asks}
+                bids={orderBook.bids}
+                currentPrice={currentPrice}
+                change={selectedCoin.change}
+                onPriceClick={handlePriceClick}
+              />
+            </div>
+            <div className="w-[240px] border-l border-trading-border overflow-hidden">
+              <TradeHistory />
+            </div>
+          </div>
+        </div>
+
+        {/* Right - Order form - 30% */}
+        <div className="w-[320px] min-w-[280px] flex-shrink-0">
+          <OrderForm
+            symbol={selectedSymbol}
+            currentPrice={currentPrice}
+            price={orderPrice}
+            onPriceChange={setOrderPrice}
+          />
+        </div>
+      </div>
     </div>
   );
 };
-
-const Index = PlaceholderIndex;
 
 export default Index;
