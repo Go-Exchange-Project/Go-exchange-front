@@ -12,9 +12,13 @@ const Index = () => {
   const [orderPrice, setOrderPrice] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const selectedCoin = mockCoins.find((c) => c.symbol === selectedSymbol) || mockCoins[0];
+  const selectedCoin =
+    mockCoins.find((c) => c.symbol === selectedSymbol) || mockCoins[0];
   const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
   const orderBook = generateOrderBook(currentPrice);
+
+  const [asks, setAsks] = useState([]);
+  const [bids, setBids] = useState([]);
 
   useEffect(() => {
     setCurrentPrice(selectedCoin.price);
@@ -30,6 +34,19 @@ const Index = () => {
         const data = JSON.parse(event.data);
         if (data.type === "ticker") {
           setCurrentPrice(data.price);
+        } else if (data.type === "orderbook") {
+          setAsks(
+            (data.data.asks || []).map((a: any) => ({
+              price: parseFloat(a.price),
+              amount: parseFloat(a.quantity),
+            })),
+          );
+          setBids(
+            (data.data.bids || []).map((b: any) => ({
+              price: parseFloat(b.price),
+              amount: parseFloat(b.quantity),
+            })),
+          );
         }
       };
       ws.onerror = () => {};
@@ -70,8 +87,8 @@ const Index = () => {
           <div className="flex-1 flex min-h-0">
             <div className="flex-1 overflow-hidden">
               <OrderBook
-                asks={orderBook.asks}
-                bids={orderBook.bids}
+                asks={asks.length > 0 ? asks : orderBook.asks}
+                bids={bids.length > 0 ? bids : orderBook.bids}
                 currentPrice={currentPrice}
                 change={selectedCoin.change}
                 onPriceClick={handlePriceClick}
