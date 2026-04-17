@@ -5,20 +5,52 @@ import TradingChart from "@/components/trading/TradingChart";
 import OrderBook from "@/components/trading/OrderBook";
 import OrderForm from "@/components/trading/OrderForm";
 import TradeHistory from "@/components/trading/TradeHistory";
-import { mockCoins, generateOrderBook } from "@/components/trading/mockData";
+import { mockCoins } from "@/components/trading/mockData";
 
 const Index = () => {
   const [selectedSymbol, setSelectedSymbol] = useState("BTC");
   const [orderPrice, setOrderPrice] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const selectedCoin =
-    mockCoins.find((c) => c.symbol === selectedSymbol) || mockCoins[0];
-  const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
-  const orderBook = generateOrderBook(currentPrice);
-
   const [asks, setAsks] = useState([]);
   const [bids, setBids] = useState([]);
+
+  const [coins, setCoins] = useState(mockCoins);
+  const selectedCoin =
+    coins.find((c) => c.symbol === selectedSymbol) || coins[0];
+  const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
+
+  useEffect(() => {
+    const symbols = mockCoins.map((c) => `KRW-${c.symbol}`).join(",");
+
+    const fetchPrices = async () => {
+      const res = await fetch(
+        `https://api.upbit.com/v1/ticker?markets=${symbols}`,
+      );
+      const data = await res.json();
+
+      if (!Array.isArray(data)) return; // 배열이 아니면 무시
+
+      setCoins((prev) =>
+        prev.map((coin) => {
+          const upbit = data.find(
+            (d: any) => d.market === `KRW-${coin.symbol}`,
+          );
+          if (!upbit) return coin;
+          return {
+            ...coin,
+            price: upbit.trade_price,
+            change: upbit.signed_change_rate * 100,
+            volume: upbit.acc_trade_price_24h,
+          };
+        }),
+      );
+    };
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 3000); // 3초마다 업데이트
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     setCurrentPrice(selectedCoin.price);
@@ -33,7 +65,10 @@ const Index = () => {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === "ticker") {
-          setCurrentPrice(data.price);
+          const symbol = data.code.replace("KRW-", "");
+          if (symbol === selectedSymbol) {
+            setCurrentPrice(data.price);
+          }
         } else if (data.type === "orderbook") {
           setAsks(
             (data.data.asks || []).map((a: any) => ({
@@ -54,7 +89,7 @@ const Index = () => {
     } catch {
       // WS not available
     }
-  }, []);
+  }, [selectedSymbol]);
 
   const handlePriceClick = useCallback((price: number) => {
     setOrderPrice(price);
@@ -67,7 +102,7 @@ const Index = () => {
         {/* Right coin list - 20% */}
         <div className="w-[280px] min-w-[240px] flex-shrink-0">
           <CoinList
-            coins={mockCoins}
+            coins={coins}
             selectedSymbol={selectedSymbol}
             onSelect={setSelectedSymbol}
           />
@@ -87,8 +122,8 @@ const Index = () => {
           <div className="flex-1 flex min-h-0">
             <div className="flex-1 overflow-hidden">
               <OrderBook
-                asks={asks.length > 0 ? asks : orderBook.asks}
-                bids={bids.length > 0 ? bids : orderBook.bids}
+                asks={asks}
+                bids={bids}
                 currentPrice={currentPrice}
                 change={selectedCoin.change}
                 onPriceClick={handlePriceClick}
