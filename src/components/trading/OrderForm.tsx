@@ -7,7 +7,12 @@ interface OrderFormProps {
   onPriceChange: (price: number) => void;
 }
 
-const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProps) => {
+const OrderForm = ({
+  symbol,
+  currentPrice,
+  price,
+  onPriceChange,
+}: OrderFormProps) => {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [orderType, setOrderType] = useState<"limit" | "market">("limit");
   const [amount, setAmount] = useState<string>("");
@@ -15,8 +20,14 @@ const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProp
 
   const total = price * (parseFloat(amount) || 0);
 
+  const [userEdited, setUserEdited] = useState(false);
+
+  const [rawPrice, setRawPrice] = useState<string>(String(price));
+
   useEffect(() => {
-    onPriceChange(currentPrice);
+    if (!userEdited) {
+      onPriceChange(currentPrice);
+    }
   }, [currentPrice]);
 
   const handlePercentage = (pct: number) => {
@@ -50,7 +61,8 @@ const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProp
     }
   };
 
-  const formatPrice = (p: number) => (p < 1 ? p.toFixed(4) : p.toLocaleString());
+  const formatPrice = (p: number) =>
+    p < 1 ? p.toFixed(4) : p.toLocaleString();
 
   return (
     <div className="flex flex-col h-full bg-card border-l border-trading-border">
@@ -113,19 +125,34 @@ const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProp
             </label>
             <div className="flex items-center border border-trading-border rounded bg-muted">
               <button
-                onClick={() => onPriceChange(Math.max(0, price - (price >= 1000000 ? 1000 : 1)))}
+                onClick={() =>
+                  onPriceChange(
+                    Math.max(0, price - (price >= 1000000 ? 1000 : 1)),
+                  )
+                }
                 className="px-2 py-1.5 text-muted-foreground hover:text-foreground text-sm"
               >
                 −
               </button>
               <input
                 type="text"
-                value={formatPrice(price)}
-                onChange={(e) => onPriceChange(parseFloat(e.target.value.replace(/,/g, "")) || 0)}
+                value={rawPrice}
+                onChange={(e) => {
+                  setUserEdited(true);
+                  setRawPrice(e.target.value);
+                  onPriceChange(
+                    parseFloat(e.target.value.replace(/,/g, "")) || 0,
+                  );
+                }}
+                onBlur={() => {
+                  setRawPrice(formatPrice(price));
+                }}
                 className="flex-1 bg-transparent text-center text-foreground font-mono text-sm outline-none py-1.5"
               />
               <button
-                onClick={() => onPriceChange(price + (price >= 1000000 ? 1000 : 1))}
+                onClick={() =>
+                  onPriceChange(price + (price >= 1000000 ? 1000 : 1))
+                }
                 className="px-2 py-1.5 text-muted-foreground hover:text-foreground text-sm"
               >
                 +
@@ -163,7 +190,9 @@ const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProp
 
         {/* Total */}
         <div>
-          <label className="text-[11px] text-muted-foreground mb-1 block">주문총액 (KRW)</label>
+          <label className="text-[11px] text-muted-foreground mb-1 block">
+            주문총액 (KRW)
+          </label>
           <input
             type="text"
             value={total > 0 ? total.toLocaleString() : ""}
@@ -183,7 +212,11 @@ const OrderForm = ({ symbol, currentPrice, price, onPriceChange }: OrderFormProp
               : "bg-trading-sell text-destructive-foreground hover:opacity-90"
           }`}
         >
-          {isSubmitting ? "주문 중..." : side === "BUY" ? `매수 ${symbol}` : `매도 ${symbol}`}
+          {isSubmitting
+            ? "주문 중..."
+            : side === "BUY"
+              ? `매수 ${symbol}`
+              : `매도 ${symbol}`}
         </button>
       </div>
     </div>
