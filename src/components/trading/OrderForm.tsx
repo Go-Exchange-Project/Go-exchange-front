@@ -1,10 +1,14 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Wallet, createOrder } from "@/lib/api";
 
 interface OrderFormProps {
   symbol: string;
   currentPrice: number;
   price: number;
   onPriceChange: (price: number) => void;
+  authToken: string | null;
+  wallets: Wallet[];
+  onOrderAccepted: () => void;
 }
 
 const OrderForm = ({
@@ -12,148 +16,183 @@ const OrderForm = ({
   currentPrice,
   price,
   onPriceChange,
+  authToken,
+  wallets,
+  onOrderAccepted,
 }: OrderFormProps) => {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [orderType, setOrderType] = useState<"limit" | "market">("limit");
-  const [amount, setAmount] = useState<string>("");
+  const [amount, setAmount] = useState("");
+  const [rawPrice, setRawPrice] = useState(String(price));
+  const [userEditedPrice, setUserEditedPrice] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const total = price * (parseFloat(amount) || 0);
-
-  const [userEdited, setUserEdited] = useState(false);
-
-  const [rawPrice, setRawPrice] = useState<string>(String(price));
+  const amountNumber = Number(normalizeDecimalInput(amount));
+  const total = price * (Number.isFinite(amountNumber) ? amountNumber : 0);
+  const selectedWallet = wallets.find((wallet) =>
+    side === "BUY" ? wallet.coin_symbol === "KRW" : wallet.coin_symbol === symbol,
+  );
 
   useEffect(() => {
-    if (!userEdited) {
+    if (!userEditedPrice) {
       onPriceChange(currentPrice);
+      setRawPrice(formatPrice(currentPrice));
     }
-  }, [currentPrice]);
+  }, [currentPrice, onPriceChange, userEditedPrice]);
+
+  useEffect(() => {
+    if (!userEditedPrice) {
+      setRawPrice(formatPrice(price));
+    }
+  }, [price, userEditedPrice]);
 
   const handlePercentage = (pct: number) => {
-    // In real app, calculate based on balance
-    const mockBalance = side === "BUY" ? 10000000 : 0.5;
+    const available = Number(selectedWallet?.available_balance ?? 0);
+    if (!Number.isFinite(available) || available <= 0) return;
+
     if (side === "BUY" && price > 0) {
-      setAmount(((mockBalance * pct) / 100 / price).toFixed(8));
-    } else {
-      setAmount(((mockBalance * pct) / 100).toFixed(8));
+      setAmount(((available * pct) / 100 / price).toFixed(8));
+      return;
     }
+    setAmount(((available * pct) / 100).toFixed(8));
+  };
+
+  const selectOrderType = (value: "limit" | "market") => {
+    if (value === "market") {
+      setSubmitMessage(null);
+      setSubmitError("Market orders are not supported yet.");
+      return;
+    }
+    setOrderType(value);
+    setSubmitError(null);
   };
 
   const handleSubmit = async () => {
-    if (!price || !parseFloat(amount)) return;
+    const normalizedAmount = normalizeDecimalInput(amount);
+    const normalizedPrice = normalizeDecimalInput(rawPrice) || String(price);
+    setSubmitMessage(null);
+    setSubmitError(null);
+
+    if (!authToken) {
+      setSubmitError("Login is required before placing orders.");
+      return;
+    }
+    if (orderType !== "limit") {
+      setSubmitError("Market orders are not supported yet.");
+      return;
+    }
+    if (!normalizedPrice || !normalizedAmount || Number(normalizedAmount) <= 0) {
+      setSubmitError("Enter a valid price and amount.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await fetch("http://localhost:8080/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          coin_symbol: symbol,
-          side,
-          price,
-          amount: parseFloat(amount),
-        }),
+      const result = await createOrder(authToken, {
+        coin_symbol: symbol,
+        side,
+        order_type: "LIMIT",
+        price: normalizedPrice,
+        amount: normalizedAmount,
       });
-    } catch {
-      // API not available
+      setSubmitMessage(`Order accepted #${result.order_id}`);
+      setAmount("");
+      onOrderAccepted();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Order request failed");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const formatPrice = (p: number) =>
-    p < 1 ? p.toFixed(4) : p.toLocaleString();
-
   return (
-    <div className="flex flex-col h-full bg-card border-l border-trading-border">
-      {/* Buy/Sell tabs */}
+    <div className="flex h-full flex-col border-l border-trading-border bg-card">
       <div className="flex border-b border-trading-border">
         <button
           onClick={() => setSide("BUY")}
           className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
             side === "BUY"
-              ? "text-trading-buy border-b-2 border-trading-buy"
+              ? "border-b-2 border-trading-buy text-trading-buy"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          매수
+          Buy
         </button>
         <button
           onClick={() => setSide("SELL")}
           className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
             side === "SELL"
-              ? "text-trading-sell border-b-2 border-trading-sell"
+              ? "border-b-2 border-trading-sell text-trading-sell"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          매도
+          Sell
         </button>
       </div>
 
-      <div className="p-4 flex flex-col gap-3 flex-1">
-        {/* Order type */}
+      <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-center gap-1 text-xs">
-          <span className="text-muted-foreground mr-2">주문유형</span>
-          {(["limit", "market"] as const).map((t) => (
+          <span className="mr-2 text-muted-foreground">Order type</span>
+          {(["limit", "market"] as const).map((value) => (
             <button
-              key={t}
-              onClick={() => setOrderType(t)}
-              className={`px-3 py-1 rounded text-xs transition-colors ${
-                orderType === t
+              key={value}
+              onClick={() => selectOrderType(value)}
+              disabled={value === "market"}
+              className={`rounded px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                orderType === value
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {t === "limit" ? "지정가" : "시장가"}
+              {value === "limit" ? "Limit" : "Market"}
             </button>
           ))}
         </div>
 
-        {/* Available balance */}
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">주문가능</span>
-          <span className="text-foreground font-mono">
-            {side === "BUY" ? "10,000,000 KRW" : `0.500 ${symbol}`}
+          <span className="text-muted-foreground">Available</span>
+          <span className="font-mono text-foreground">
+            {selectedWallet?.available_balance ?? "0"}{" "}
+            {side === "BUY" ? "KRW" : symbol}
           </span>
         </div>
 
-        {/* Price input */}
         {orderType === "limit" && (
           <div>
-            <label className="text-[11px] text-muted-foreground mb-1 block">
-              {side === "BUY" ? "매수" : "매도"}가격 (KRW)
+            <label className="mb-1 block text-[11px] text-muted-foreground">
+              Price (KRW)
             </label>
-            <div className="flex items-center border border-trading-border rounded bg-muted">
+            <div className="flex items-center rounded border border-trading-border bg-muted">
               <button
                 onClick={() =>
                   onPriceChange(
                     Math.max(0, price - (price >= 1000000 ? 1000 : 1)),
                   )
                 }
-                className="px-2 py-1.5 text-muted-foreground hover:text-foreground text-sm"
+                className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
               >
-                −
+                -
               </button>
               <input
                 type="text"
                 value={rawPrice}
-                onChange={(e) => {
-                  setUserEdited(true);
-                  setRawPrice(e.target.value);
+                onChange={(event) => {
+                  setUserEditedPrice(true);
+                  setRawPrice(event.target.value);
                   onPriceChange(
-                    parseFloat(e.target.value.replace(/,/g, "")) || 0,
+                    Number(normalizeDecimalInput(event.target.value)) || 0,
                   );
                 }}
-                onBlur={() => {
-                  setRawPrice(formatPrice(price));
-                }}
-                className="flex-1 bg-transparent text-center text-foreground font-mono text-sm outline-none py-1.5"
+                onBlur={() => setRawPrice(formatPrice(price))}
+                className="flex-1 bg-transparent py-1.5 text-center font-mono text-sm text-foreground outline-none"
               />
               <button
                 onClick={() =>
                   onPriceChange(price + (price >= 1000000 ? 1000 : 1))
                 }
-                className="px-2 py-1.5 text-muted-foreground hover:text-foreground text-sm"
+                className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
               >
                 +
               </button>
@@ -161,66 +200,80 @@ const OrderForm = ({
           </div>
         )}
 
-        {/* Amount input */}
         <div>
-          <label className="text-[11px] text-muted-foreground mb-1 block">
-            주문수량 ({symbol})
+          <label className="mb-1 block text-[11px] text-muted-foreground">
+            Amount ({symbol})
           </label>
           <input
             type="text"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(event) => setAmount(event.target.value)}
             placeholder="0"
-            className="w-full bg-muted text-foreground font-mono text-sm px-3 py-1.5 rounded border border-trading-border outline-none focus:border-primary"
+            className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none focus:border-primary"
           />
         </div>
 
-        {/* Percentage buttons */}
         <div className="grid grid-cols-4 gap-1">
           {[10, 25, 50, 100].map((pct) => (
             <button
               key={pct}
               onClick={() => handlePercentage(pct)}
-              className="py-1 text-xs text-muted-foreground bg-muted rounded border border-trading-border hover:text-foreground hover:border-foreground/20 transition-colors"
+              className="rounded border border-trading-border bg-muted py-1 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
             >
               {pct}%
             </button>
           ))}
         </div>
 
-        {/* Total */}
         <div>
-          <label className="text-[11px] text-muted-foreground mb-1 block">
-            주문총액 (KRW)
+          <label className="mb-1 block text-[11px] text-muted-foreground">
+            Total (KRW)
           </label>
           <input
             type="text"
             value={total > 0 ? total.toLocaleString() : ""}
             readOnly
             placeholder="0"
-            className="w-full bg-muted text-foreground font-mono text-sm px-3 py-1.5 rounded border border-trading-border outline-none"
+            className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none"
           />
         </div>
 
-        {/* Submit button */}
+        {submitError && (
+          <div className="text-[11px] text-destructive">{submitError}</div>
+        )}
+        {submitMessage && (
+          <div className="text-[11px] text-emerald-500">{submitMessage}</div>
+        )}
+
         <button
           onClick={handleSubmit}
-          disabled={isSubmitting || !price || !parseFloat(amount)}
-          className={`w-full py-3 rounded font-bold text-sm mt-auto transition-colors disabled:opacity-40 ${
+          disabled={
+            isSubmitting ||
+            !authToken ||
+            orderType !== "limit" ||
+            !price ||
+            !(amountNumber > 0)
+          }
+          className={`mt-auto w-full rounded py-3 text-sm font-bold transition-colors disabled:opacity-40 ${
             side === "BUY"
               ? "bg-trading-buy text-primary-foreground hover:opacity-90"
               : "bg-trading-sell text-destructive-foreground hover:opacity-90"
           }`}
         >
           {isSubmitting
-            ? "주문 중..."
-            : side === "BUY"
-              ? `매수 ${symbol}`
-              : `매도 ${symbol}`}
+            ? "Submitting..."
+            : !authToken
+              ? "Login required"
+              : `${side === "BUY" ? "Buy" : "Sell"} ${symbol}`}
         </button>
       </div>
     </div>
   );
 };
+
+const normalizeDecimalInput = (value: string) => value.replace(/,/g, "").trim();
+
+const formatPrice = (value: number) =>
+  value < 1 ? value.toFixed(4) : value.toLocaleString();
 
 export default OrderForm;
