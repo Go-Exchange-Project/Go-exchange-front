@@ -36,6 +36,15 @@ export interface Order {
   created_at: string;
 }
 
+export interface CancelOrderResponse {
+  message: string;
+  order_id: number;
+  status: "CANCELLED";
+  released_asset: string;
+  released_amount: string;
+  engine_removed: boolean;
+}
+
 export async function registerUser(input: {
   name: string;
   email: string;
@@ -71,6 +80,16 @@ export async function createOrder(
     method: "POST",
     token,
     body: JSON.stringify(input),
+  });
+}
+
+export async function cancelOrder(
+  token: string,
+  orderID: number,
+): Promise<CancelOrderResponse> {
+  return apiRequest<CancelOrderResponse>(`/orders/${orderID}`, {
+    method: "DELETE",
+    token,
   });
 }
 

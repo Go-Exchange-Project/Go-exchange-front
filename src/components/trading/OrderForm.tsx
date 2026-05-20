@@ -34,6 +34,15 @@ const OrderForm = ({
   const selectedWallet = wallets.find((wallet) =>
     side === "BUY" ? wallet.coin_symbol === "KRW" : wallet.coin_symbol === symbol,
   );
+  const availableBalance = Number(selectedWallet?.available_balance ?? 0);
+  const lockedBalance = Number(selectedWallet?.locked_balance ?? 0);
+  const requiredBalance = side === "BUY" ? total : amountNumber;
+  const balanceAsset = side === "BUY" ? "KRW" : symbol;
+  const hasInsufficientBalance =
+    !!authToken &&
+    amountNumber > 0 &&
+    Number.isFinite(requiredBalance) &&
+    requiredBalance > availableBalance;
 
   useEffect(() => {
     if (!userEditedPrice) {
@@ -49,14 +58,13 @@ const OrderForm = ({
   }, [price, userEditedPrice]);
 
   const handlePercentage = (pct: number) => {
-    const available = Number(selectedWallet?.available_balance ?? 0);
-    if (!Number.isFinite(available) || available <= 0) return;
+    if (!Number.isFinite(availableBalance) || availableBalance <= 0) return;
 
     if (side === "BUY" && price > 0) {
-      setAmount(((available * pct) / 100 / price).toFixed(8));
+      setAmount(((availableBalance * pct) / 100 / price).toFixed(8));
       return;
     }
-    setAmount(((available * pct) / 100).toFixed(8));
+    setAmount(((availableBalance * pct) / 100).toFixed(8));
   };
 
   const selectOrderType = (value: "limit" | "market") => {
@@ -85,6 +93,14 @@ const OrderForm = ({
     }
     if (!normalizedPrice || !normalizedAmount || Number(normalizedAmount) <= 0) {
       setSubmitError("Enter a valid price and amount.");
+      return;
+    }
+    if (Number(normalizedPrice) <= 0) {
+      setSubmitError("Enter a valid price.");
+      return;
+    }
+    if (hasInsufficientBalance) {
+      setSubmitError(`Insufficient ${balanceAsset} available balance.`);
       return;
     }
 
@@ -154,8 +170,14 @@ const OrderForm = ({
         <div className="flex justify-between text-xs">
           <span className="text-muted-foreground">Available</span>
           <span className="font-mono text-foreground">
-            {selectedWallet?.available_balance ?? "0"}{" "}
-            {side === "BUY" ? "KRW" : symbol}
+            {formatBalance(availableBalance)} {balanceAsset}
+          </span>
+        </div>
+
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">Locked</span>
+          <span className="font-mono text-muted-foreground">
+            {formatBalance(lockedBalance)} {balanceAsset}
           </span>
         </div>
 
@@ -166,11 +188,16 @@ const OrderForm = ({
             </label>
             <div className="flex items-center rounded border border-trading-border bg-muted">
               <button
-                onClick={() =>
-                  onPriceChange(
-                    Math.max(0, price - (price >= 1000000 ? 1000 : 1)),
-                  )
-                }
+                type="button"
+                onClick={() => {
+                  const nextPrice = Math.max(
+                    0,
+                    price - (price >= 1000000 ? 1000 : 1),
+                  );
+                  setUserEditedPrice(true);
+                  setRawPrice(formatPrice(nextPrice));
+                  onPriceChange(nextPrice);
+                }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
               >
                 -
@@ -189,9 +216,13 @@ const OrderForm = ({
                 className="flex-1 bg-transparent py-1.5 text-center font-mono text-sm text-foreground outline-none"
               />
               <button
-                onClick={() =>
-                  onPriceChange(price + (price >= 1000000 ? 1000 : 1))
-                }
+                type="button"
+                onClick={() => {
+                  const nextPrice = price + (price >= 1000000 ? 1000 : 1);
+                  setUserEditedPrice(true);
+                  setRawPrice(formatPrice(nextPrice));
+                  onPriceChange(nextPrice);
+                }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
               >
                 +
@@ -217,6 +248,7 @@ const OrderForm = ({
           {[10, 25, 50, 100].map((pct) => (
             <button
               key={pct}
+              type="button"
               onClick={() => handlePercentage(pct)}
               className="rounded border border-trading-border bg-muted py-1 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
             >
@@ -238,6 +270,28 @@ const OrderForm = ({
           />
         </div>
 
+        {amountNumber > 0 && (
+          <div className="rounded border border-trading-border bg-muted px-2 py-2 text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">
+                {side === "BUY" ? "KRW to lock" : `${symbol} to lock`}
+              </span>
+              <span
+                className={`font-mono ${
+                  hasInsufficientBalance ? "text-destructive" : "text-foreground"
+                }`}
+              >
+                {formatBalance(requiredBalance)} {balanceAsset}
+              </span>
+            </div>
+            {hasInsufficientBalance && (
+              <div className="mt-1 text-destructive">
+                Available balance is not enough for this order.
+              </div>
+            )}
+          </div>
+        )}
+
         {submitError && (
           <div className="text-[11px] text-destructive">{submitError}</div>
         )}
@@ -252,7 +306,8 @@ const OrderForm = ({
             !authToken ||
             orderType !== "limit" ||
             !price ||
-            !(amountNumber > 0)
+            !(amountNumber > 0) ||
+            hasInsufficientBalance
           }
           className={`mt-auto w-full rounded py-3 text-sm font-bold transition-colors disabled:opacity-40 ${
             side === "BUY"
@@ -275,5 +330,10 @@ const normalizeDecimalInput = (value: string) => value.replace(/,/g, "").trim();
 
 const formatPrice = (value: number) =>
   value < 1 ? value.toFixed(4) : value.toLocaleString();
+
+const formatBalance = (value: number) => {
+  if (!Number.isFinite(value)) return "0";
+  return value < 1 ? value.toFixed(8).replace(/0+$/, "").replace(/\.$/, "") : value.toLocaleString();
+};
 
 export default OrderForm;

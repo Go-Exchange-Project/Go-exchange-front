@@ -5,10 +5,12 @@ import {
   DEV_TOOLS_ENABLED,
   Order,
   Wallet,
+  cancelOrder,
   fundWallet,
   loginUser,
   registerUser,
 } from "@/lib/api";
+import { X } from "lucide-react";
 
 interface AuthPanelProps {
   token: string | null;
@@ -39,7 +41,9 @@ const AuthPanel = ({
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFunding, setIsFunding] = useState(false);
+  const [cancelingOrderID, setCancelingOrderID] = useState<number | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
   const submit = async () => {
     setIsSubmitting(true);
@@ -66,6 +70,15 @@ const AuthPanel = ({
     const openOrders = orders.filter(
       (order) => order.status === "PENDING" || order.status === "PARTIAL",
     );
+    const visibleOpenOrders = [...openOrders].sort((a, b) => {
+      if (a.coin_symbol === selectedSymbol && b.coin_symbol !== selectedSymbol) {
+        return -1;
+      }
+      if (a.coin_symbol !== selectedSymbol && b.coin_symbol === selectedSymbol) {
+        return 1;
+      }
+      return b.id - a.id;
+    });
     const visibleWallets = wallets.filter(
       (wallet) =>
         wallet.available_balance !== "0" || wallet.locked_balance !== "0",
@@ -74,13 +87,34 @@ const AuthPanel = ({
     const handleDevFund = async (coinSymbol: string, amount: string) => {
       setIsFunding(true);
       setAuthError(null);
+      setAccountMessage(null);
       try {
-        await fundWallet(token, { coin_symbol: coinSymbol, amount });
+        const result = await fundWallet(token, { coin_symbol: coinSymbol, amount });
+        setAccountMessage(
+          `${result.wallet.coin_symbol} available ${result.wallet.available_balance}`,
+        );
         onRefresh();
       } catch (err) {
         setAuthError(err instanceof Error ? err.message : "Funding failed");
       } finally {
         setIsFunding(false);
+      }
+    };
+
+    const handleCancelOrder = async (orderID: number) => {
+      setCancelingOrderID(orderID);
+      setAuthError(null);
+      setAccountMessage(null);
+      try {
+        const result = await cancelOrder(token, orderID);
+        setAccountMessage(
+          `Released ${result.released_amount} ${result.released_asset}`,
+        );
+        onRefresh();
+      } catch (err) {
+        setAuthError(err instanceof Error ? err.message : "Cancel failed");
+      } finally {
+        setCancelingOrderID(null);
       }
     };
 
@@ -162,6 +196,53 @@ const AuthPanel = ({
           </div>
         )}
 
+        <div className="mt-2 rounded border border-trading-border bg-muted">
+          <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
+            <span className="text-muted-foreground">Open orders</span>
+            <span className="font-mono text-foreground">{openOrders.length}</span>
+          </div>
+          <div className="max-h-28 overflow-y-auto px-2 py-1">
+            {visibleOpenOrders.length === 0 ? (
+              <div className="py-1 text-muted-foreground">No open orders</div>
+            ) : (
+              visibleOpenOrders.slice(0, 6).map((order) => (
+                <div
+                  key={order.id}
+                  className="grid grid-cols-[44px_1fr_26px] items-center gap-2 py-1"
+                >
+                  <span
+                    className={`font-medium ${
+                      order.side === "BUY"
+                        ? "text-trading-buy"
+                        : "text-trading-sell"
+                    }`}
+                  >
+                    {order.side}
+                  </span>
+                  <div className="min-w-0 font-mono text-[11px]">
+                    <div className="truncate text-foreground">
+                      {order.coin_symbol} {order.remaining}
+                    </div>
+                    <div className="truncate text-muted-foreground">
+                      @ {order.price}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    title={`Cancel order #${order.id}`}
+                    aria-label={`Cancel order #${order.id}`}
+                    onClick={() => handleCancelOrder(order.id)}
+                    disabled={cancelingOrderID === order.id}
+                    className="flex h-6 w-6 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
         {DEV_TOOLS_ENABLED && (
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -181,6 +262,11 @@ const AuthPanel = ({
           </div>
         )}
 
+        {accountMessage && (
+          <div className="mt-2 text-[11px] text-emerald-500">
+            {accountMessage}
+          </div>
+        )}
         {authError && (
           <div className="mt-2 text-[11px] text-destructive">{authError}</div>
         )}

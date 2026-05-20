@@ -4,9 +4,12 @@ import CoinList from "@/components/trading/CoinList";
 import TradingChart from "@/components/trading/TradingChart";
 import OrderBook from "@/components/trading/OrderBook";
 import OrderForm from "@/components/trading/OrderForm";
-import TradeHistory from "@/components/trading/TradeHistory";
+import TradeHistory, {
+  TradeHistoryEntry,
+} from "@/components/trading/TradeHistory";
 import AuthPanel from "@/components/trading/AuthPanel";
 import { mockCoins } from "@/components/trading/mockData";
+import { OrderBookEntry } from "@/components/trading/types";
 import {
   AuthResponse,
   AuthUser,
@@ -31,15 +34,26 @@ interface OrderBookLevel {
   quantity: string | number;
 }
 
+interface TradeMessageData {
+  coin_symbol?: string;
+  coinSymbol?: string;
+  price?: string | number;
+  quantity?: string | number;
+  time?: string;
+  traded_at?: string;
+}
+
 type WebSocketMessage =
   | { type: "ticker"; code: string; price: number }
   | {
       type: "orderbook";
       data?: {
+        coin_symbol?: string;
         asks?: OrderBookLevel[];
         bids?: OrderBookLevel[];
       };
     }
+  | { type: "trade"; data?: TradeMessageData }
   | { type?: string };
 
 const Index = () => {
@@ -47,9 +61,13 @@ const Index = () => {
   const [orderPrice, setOrderPrice] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const previousSymbolRef = useRef(selectedSymbol);
+  const selectedSymbolRef = useRef(selectedSymbol);
+  const authTokenRef = useRef<string | null>(null);
+  const refreshAccountRef = useRef<() => void>(() => {});
 
-  const [asks, setAsks] = useState([]);
-  const [bids, setBids] = useState([]);
+  const [asks, setAsks] = useState<OrderBookEntry[]>([]);
+  const [bids, setBids] = useState<OrderBookEntry[]>([]);
+  const [trades, setTrades] = useState<TradeHistoryEntry[]>([]);
 
   const [coins, setCoins] = useState(mockCoins);
   const selectedCoin =
@@ -112,6 +130,11 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
+    authTokenRef.current = authToken;
+    refreshAccountRef.current = refreshAccount;
+  }, [authToken, refreshAccount]);
+
+  useEffect(() => {
     const symbols = mockCoins.map((c) => `KRW-${c.symbol}`).join(",");
 
     const fetchPrices = async () => {
@@ -145,12 +168,16 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
+    selectedSymbolRef.current = selectedSymbol;
     if (previousSymbolRef.current === selectedSymbol) {
       return;
     }
     previousSymbolRef.current = selectedSymbol;
     setCurrentPrice(selectedCoin.price);
     setOrderPrice(selectedCoin.price);
+    setAsks([]);
+    setBids([]);
+    setTrades([]);
   }, [selectedCoin.price, selectedSymbol]);
 
   useEffect(() => {
@@ -162,13 +189,19 @@ const Index = () => {
       const ws = new WebSocket("ws://localhost:8080/ws");
       wsRef.current = ws;
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data) as WebSocketMessage;
+        const data = parseWebSocketMessage(event.data);
+        if (!data) return;
+
         if (data.type === "ticker") {
           const symbol = data.code.replace("KRW-", "");
-          if (symbol === selectedSymbol) {
+          if (symbol === selectedSymbolRef.current) {
             setCurrentPrice(data.price);
           }
         } else if (data.type === "orderbook") {
+          const snapshotSymbol = data.data?.coin_symbol;
+          if (snapshotSymbol && snapshotSymbol !== selectedSymbolRef.current) {
+            return;
+          }
           setAsks(
             (data.data?.asks || []).map((ask) => ({
               price: Number(ask.price),
@@ -181,6 +214,16 @@ const Index = () => {
               amount: Number(bid.quantity),
             })),
           );
+        } else if (data.type === "trade") {
+          const trade = toTradeHistoryEntry(data.data);
+          if (!trade) return;
+          if (trade.coinSymbol && trade.coinSymbol !== selectedSymbolRef.current) {
+            return;
+          }
+          setTrades((prev) => [trade, ...prev].slice(0, 50));
+          if (authTokenRef.current) {
+            refreshAccountRef.current();
+          }
         }
       };
       ws.onerror = () => {};
@@ -188,7 +231,7 @@ const Index = () => {
     } catch {
       // WebSocket is optional during local frontend-only development.
     }
-  }, [selectedSymbol]);
+  }, []);
 
   const handlePriceClick = useCallback((price: number) => {
     setOrderPrice(price);
@@ -225,7 +268,7 @@ const Index = () => {
               />
             </div>
             <div className="w-[240px] border-l border-trading-border overflow-hidden">
-              <TradeHistory />
+              <TradeHistory trades={trades} />
             </div>
           </div>
         </div>
@@ -258,6 +301,35 @@ const Index = () => {
     </div>
   );
 };
+
+function parseWebSocketMessage(value: string): WebSocketMessage | null {
+  try {
+    return JSON.parse(value) as WebSocketMessage;
+  } catch {
+    return null;
+  }
+}
+
+function toTradeHistoryEntry(
+  trade: TradeMessageData | undefined,
+): TradeHistoryEntry | null {
+  if (!trade) return null;
+
+  const price = Number(trade.price);
+  const amount = Number(trade.quantity);
+  if (!Number.isFinite(price) || !Number.isFinite(amount)) {
+    return null;
+  }
+
+  const tradedAt = trade.time ?? trade.traded_at;
+  return {
+    time: tradedAt ? new Date(tradedAt).toLocaleTimeString() : "--:--:--",
+    price,
+    amount,
+    side: "buy",
+    coinSymbol: trade.coin_symbol ?? trade.coinSymbol,
+  };
+}
 
 function isUpbitTicker(value: unknown): value is UpbitTicker {
   if (typeof value !== "object" || value === null) {
