@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Wallet, createOrder } from "@/lib/api";
+import { Wallet, createOrder, isUnauthorizedError } from "@/lib/api";
 
 interface OrderFormProps {
   symbol: string;
@@ -8,6 +8,7 @@ interface OrderFormProps {
   onPriceChange: (price: number) => void;
   authToken: string | null;
   wallets: Wallet[];
+  onAuthExpired: () => void;
   onOrderAccepted: () => void;
 }
 
@@ -18,6 +19,7 @@ const OrderForm = ({
   onPriceChange,
   authToken,
   wallets,
+  onAuthExpired,
   onOrderAccepted,
 }: OrderFormProps) => {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -117,6 +119,10 @@ const OrderForm = ({
       setAmount("");
       onOrderAccepted();
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        onAuthExpired();
+        return;
+      }
       setSubmitError(err instanceof Error ? err.message : "Order request failed");
     } finally {
       setIsSubmitting(false);

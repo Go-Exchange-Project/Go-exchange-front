@@ -15,6 +15,7 @@ The backend should load `.env.local` with at least:
 
 ```text
 GOEXCHANGE_ENABLE_DEV_TOOLS=true
+GOEXCHANGE_DEV_TOOLS_TOKEN=e2e-dev-token
 GOEXCHANGE_ENABLE_UPBIT=false
 GOEXCHANGE_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 GOEXCHANGE_WS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
@@ -47,6 +48,7 @@ Override endpoints when needed:
 $env:E2E_API_BASE_URL="http://127.0.0.1:8080"
 $env:E2E_FRONTEND_BASE_URL="http://127.0.0.1:3000"
 $env:E2E_BROWSER_CHANNEL="chrome"
+$env:E2E_DEV_TOOLS_TOKEN="e2e-dev-token"
 npm run test:e2e
 ```
 
@@ -56,4 +58,4 @@ npm run test:e2e
 - API flow: seller funds BTC, buyer funds KRW, matching creates a trade, and both wallets/orders settle.
 - Error contract: invalid order input returns `422`; insufficient balance returns `409`.
 
-If the backend is not reachable, tests are skipped with a message. If dev tools are disabled, wallet-funding tests are skipped or fail with a clear setup error.
+If the backend is not reachable, tests are skipped with a message. If dev tools are disabled or the dev tools token does not match, wallet-funding tests are skipped or fail with a clear setup error.

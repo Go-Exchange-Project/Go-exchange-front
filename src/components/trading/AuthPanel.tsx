@@ -7,6 +7,7 @@ import {
   Wallet,
   cancelOrder,
   fundWallet,
+  isUnauthorizedError,
   loginUser,
   registerUser,
 } from "@/lib/api";
@@ -21,6 +22,7 @@ interface AuthPanelProps {
   selectedSymbol: string;
   onAuth: (auth: AuthResponse) => void;
   onLogout: () => void;
+  onAuthExpired: () => void;
   onRefresh: () => void;
 }
 
@@ -33,6 +35,7 @@ const AuthPanel = ({
   selectedSymbol,
   onAuth,
   onLogout,
+  onAuthExpired,
   onRefresh,
 }: AuthPanelProps) => {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -95,6 +98,10 @@ const AuthPanel = ({
         );
         onRefresh();
       } catch (err) {
+        if (isUnauthorizedError(err)) {
+          onAuthExpired();
+          return;
+        }
         setAuthError(err instanceof Error ? err.message : "Funding failed");
       } finally {
         setIsFunding(false);
@@ -112,6 +119,10 @@ const AuthPanel = ({
         );
         onRefresh();
       } catch (err) {
+        if (isUnauthorizedError(err)) {
+          onAuthExpired();
+          return;
+        }
         setAuthError(err instanceof Error ? err.message : "Cancel failed");
       } finally {
         setCancelingOrderID(null);
@@ -342,6 +353,7 @@ const AuthPanel = ({
       {authError && (
         <div className="mt-2 text-[11px] text-destructive">{authError}</div>
       )}
+      {error && <div className="mt-2 text-[11px] text-destructive">{error}</div>}
 
       <button
         onClick={submit}

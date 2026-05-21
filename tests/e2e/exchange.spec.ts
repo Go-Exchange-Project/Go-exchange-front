@@ -4,6 +4,10 @@ const apiBaseURL =
   process.env.E2E_API_BASE_URL ??
   process.env.VITE_API_BASE_URL ??
   "http://127.0.0.1:8080";
+const devToolsToken =
+  process.env.E2E_DEV_TOOLS_TOKEN ??
+  process.env.VITE_DEV_TOOLS_TOKEN ??
+  "e2e-dev-token";
 
 const password = "E2ePassword123!";
 
@@ -165,6 +169,25 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
     },
   });
   expect(insufficientBalance.status()).toBe(409);
+});
+
+test("protected APIs return structured auth errors and dev tools require a dev token", async ({
+  request,
+}) => {
+  const missingAuth = await request.get(`${apiBaseURL}/wallets`);
+  expect(missingAuth.status()).toBe(401);
+  await expectErrorCode(missingAuth, "AUTH_REQUIRED");
+
+  const user = await register(request, "dev-guard");
+  const missingDevToken = await request.post(`${apiBaseURL}/dev/wallets/fund`, {
+    headers: authHeaders(user.token),
+    data: {
+      coin_symbol: "KRW",
+      amount: "1",
+    },
+  });
+  expect(missingDevToken.status()).toBe(403);
+  await expectErrorCode(missingDevToken, "DEV_TOOLS_FORBIDDEN");
 });
 
 test("incoming buy skips the user's own best ask and matches another seller", async ({
@@ -384,7 +407,10 @@ async function fundWallet(
   amount: string,
 ) {
   const response = await request.post(`${apiBaseURL}/dev/wallets/fund`, {
-    headers: authHeaders(token),
+    headers: {
+      ...authHeaders(token),
+      "X-GoExchange-Dev-Token": devToolsToken,
+    },
     data: {
       coin_symbol: coinSymbol,
       amount,
@@ -448,6 +474,18 @@ async function fetchOrders(request: APIRequestContext, token: string) {
   });
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as OrdersResponse;
+}
+
+async function expectErrorCode(
+  response: Awaited<ReturnType<APIRequestContext["get"]>>,
+  code: string,
+) {
+  const body = await response.json();
+  expect(body).toMatchObject({
+    error: {
+      code,
+    },
+  });
 }
 
 function walletBalance(wallets: WalletsResponse, coinSymbol: string) {

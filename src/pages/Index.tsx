@@ -17,6 +17,7 @@ import {
   Wallet,
   fetchOrders,
   fetchWallets,
+  isUnauthorizedError,
 } from "@/lib/api";
 
 const TOKEN_STORAGE_KEY = "goexchange.auth.token";
@@ -89,6 +90,20 @@ const Index = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [accountError, setAccountError] = useState<string | null>(null);
 
+  const clearAuthState = useCallback(() => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+    setAuthToken(null);
+    setAuthUser(null);
+    setWallets([]);
+    setOrders([]);
+  }, []);
+
+  const handleAuthExpired = useCallback(() => {
+    clearAuthState();
+    setAccountError("Session expired. Please log in again.");
+  }, [clearAuthState]);
+
   const refreshAccount = useCallback(async () => {
     if (!authToken) {
       setWallets([]);
@@ -106,28 +121,28 @@ const Index = () => {
       setOrders(orderResult.orders);
       setAccountError(null);
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        handleAuthExpired();
+        return;
+      }
       setAccountError(
         err instanceof Error ? err.message : "Failed to load account data",
       );
     }
-  }, [authToken]);
+  }, [authToken, handleAuthExpired]);
 
   const handleAuth = useCallback((auth: AuthResponse) => {
     localStorage.setItem(TOKEN_STORAGE_KEY, auth.token);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(auth.user));
     setAuthToken(auth.token);
     setAuthUser(auth.user);
+    setAccountError(null);
   }, []);
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    localStorage.removeItem(USER_STORAGE_KEY);
-    setAuthToken(null);
-    setAuthUser(null);
-    setWallets([]);
-    setOrders([]);
+    clearAuthState();
     setAccountError(null);
-  }, []);
+  }, [clearAuthState]);
 
   useEffect(() => {
     authTokenRef.current = authToken;
@@ -283,6 +298,7 @@ const Index = () => {
             selectedSymbol={selectedSymbol}
             onAuth={handleAuth}
             onLogout={handleLogout}
+            onAuthExpired={handleAuthExpired}
             onRefresh={refreshAccount}
           />
           <div className="flex-1 min-h-0">
@@ -293,6 +309,7 @@ const Index = () => {
               onPriceChange={setOrderPrice}
               authToken={authToken}
               wallets={wallets}
+              onAuthExpired={handleAuthExpired}
               onOrderAccepted={refreshAccount}
             />
           </div>

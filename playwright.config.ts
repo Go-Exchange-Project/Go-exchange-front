@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const frontendBaseURL =
   process.env.E2E_FRONTEND_BASE_URL ?? "http://127.0.0.1:3000";
 const browserChannel = process.env.E2E_BROWSER_CHANNEL;
+const devToolsToken = process.env.E2E_DEV_TOOLS_TOKEN ?? "e2e-dev-token";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -28,6 +29,7 @@ export default defineConfig({
         process.env.E2E_API_BASE_URL ??
         "http://127.0.0.1:8080",
       VITE_ENABLE_DEV_TOOLS: process.env.VITE_ENABLE_DEV_TOOLS ?? "true",
+      VITE_DEV_TOOLS_TOKEN: process.env.VITE_DEV_TOOLS_TOKEN ?? devToolsToken,
     },
   },
   projects: [

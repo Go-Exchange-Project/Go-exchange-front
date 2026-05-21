@@ -1,7 +1,8 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const DEV_TOOLS_TOKEN = import.meta.env.VITE_DEV_TOOLS_TOKEN?.trim() ?? "";
 export const DEV_TOOLS_ENABLED =
-  import.meta.env.VITE_ENABLE_DEV_TOOLS === "true";
+  import.meta.env.VITE_ENABLE_DEV_TOOLS === "true" && DEV_TOOLS_TOKEN !== "";
 
 export interface AuthUser {
   id: number;
@@ -43,6 +44,31 @@ export interface CancelOrderResponse {
   released_asset: string;
   released_amount: string;
   engine_removed: boolean;
+}
+
+interface ApiErrorPayload {
+  error?: string | {
+    code?: string;
+    message?: string;
+  };
+  code?: string;
+  message?: string;
+}
+
+export class ApiError extends Error {
+  status: number;
+  code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function isUnauthorizedError(error: unknown) {
+  return error instanceof ApiError && error.status === 401;
 }
 
 export async function registerUser(input: {
@@ -110,9 +136,16 @@ export async function fundWallet(
   token: string,
   input: { coin_symbol: string; amount: string },
 ): Promise<{ message: string; wallet: Wallet }> {
+  if (!DEV_TOOLS_TOKEN) {
+    throw new ApiError(404, "DEV_TOOLS_DISABLED", "Development funding is disabled");
+  }
+
   return apiRequest<{ message: string; wallet: Wallet }>("/dev/wallets/fund", {
     method: "POST",
     token,
+    headers: {
+      "X-GoExchange-Dev-Token": DEV_TOOLS_TOKEN,
+    },
     body: JSON.stringify(input),
   });
 }
@@ -134,10 +167,30 @@ async function apiRequest<T>(
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const message =
-      typeof data.error === "string" ? data.error : "API request failed";
-    throw new Error(message);
+    const { code, message } = parseAPIError(data as ApiErrorPayload);
+    throw new ApiError(response.status, code, message);
   }
 
   return data as T;
+}
+
+function parseAPIError(data: ApiErrorPayload) {
+  if (typeof data.error === "object" && data.error !== null) {
+    return {
+      code: data.error.code ?? "API_ERROR",
+      message: data.error.message ?? "API request failed",
+    };
+  }
+
+  if (typeof data.error === "string") {
+    return {
+      code: data.code ?? "API_ERROR",
+      message: data.error,
+    };
+  }
+
+  return {
+    code: data.code ?? "API_ERROR",
+    message: data.message ?? "API request failed",
+  };
 }
