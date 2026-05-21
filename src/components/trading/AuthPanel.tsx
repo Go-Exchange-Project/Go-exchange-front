@@ -125,7 +125,9 @@ const AuthPanel = ({
             <div className="truncate font-medium text-foreground">
               {user.email}
             </div>
-            <div className="text-muted-foreground">Authenticated</div>
+            <div className="text-muted-foreground" data-testid="auth-status">
+              Authenticated
+            </div>
           </div>
           <div className="flex gap-1">
             <button
@@ -146,13 +148,19 @@ const AuthPanel = ({
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded border border-trading-border bg-muted px-2 py-2">
             <div className="text-muted-foreground">KRW available</div>
-            <div className="truncate font-mono text-foreground">
+            <div
+              className="truncate font-mono text-foreground"
+              data-testid="krw-available"
+            >
               {krwWallet?.available_balance ?? "0"}
             </div>
           </div>
           <div className="rounded border border-trading-border bg-muted px-2 py-2">
             <div className="text-muted-foreground">KRW locked</div>
-            <div className="truncate font-mono text-foreground">
+            <div
+              className="truncate font-mono text-foreground"
+              data-testid="krw-locked"
+            >
               {krwWallet?.locked_balance ?? "0"}
             </div>
           </div>
@@ -160,13 +168,19 @@ const AuthPanel = ({
             <div className="text-muted-foreground">
               {selectedSymbol} available
             </div>
-            <div className="truncate font-mono text-foreground">
+            <div
+              className="truncate font-mono text-foreground"
+              data-testid="selected-asset-available"
+            >
               {selectedWallet?.available_balance ?? "0"}
             </div>
           </div>
           <div className="rounded border border-trading-border bg-muted px-2 py-2">
             <div className="text-muted-foreground">{selectedSymbol} locked</div>
-            <div className="truncate font-mono text-foreground">
+            <div
+              className="truncate font-mono text-foreground"
+              data-testid="selected-asset-locked"
+            >
               {selectedWallet?.locked_balance ?? "0"}
             </div>
           </div>
@@ -199,7 +213,9 @@ const AuthPanel = ({
         <div className="mt-2 rounded border border-trading-border bg-muted">
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
             <span className="text-muted-foreground">Open orders</span>
-            <span className="font-mono text-foreground">{openOrders.length}</span>
+            <span className="font-mono text-foreground" data-testid="open-order-count">
+              {openOrders.length}
+            </span>
           </div>
           <div className="max-h-28 overflow-y-auto px-2 py-1">
             {visibleOpenOrders.length === 0 ? (
@@ -209,6 +225,7 @@ const AuthPanel = ({
                 <div
                   key={order.id}
                   className="grid grid-cols-[44px_1fr_26px] items-center gap-2 py-1"
+                  data-testid="open-order-row"
                 >
                   <span
                     className={`font-medium ${
@@ -229,6 +246,7 @@ const AuthPanel = ({
                   </div>
                   <button
                     type="button"
+                    data-testid={`cancel-order-${order.id}`}
                     title={`Cancel order #${order.id}`}
                     aria-label={`Cancel order #${order.id}`}
                     onClick={() => handleCancelOrder(order.id)}
@@ -248,6 +266,7 @@ const AuthPanel = ({
             <button
               onClick={() => handleDevFund("KRW", "1000000")}
               disabled={isFunding}
+              data-testid="fund-krw"
               className="rounded border border-trading-border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
               Fund KRW +1,000,000
@@ -255,6 +274,7 @@ const AuthPanel = ({
             <button
               onClick={() => handleDevFund(selectedSymbol, "1")}
               disabled={isFunding}
+              data-testid="fund-selected-asset"
               className="rounded border border-trading-border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
               Fund {selectedSymbol} +1
@@ -282,6 +302,7 @@ const AuthPanel = ({
           <button
             key={item}
             onClick={() => setMode(item)}
+            data-testid={`auth-mode-${item}`}
             className={`flex-1 rounded border px-2 py-1 ${
               mode === item
                 ? "border-primary text-foreground"
@@ -295,25 +316,28 @@ const AuthPanel = ({
 
       {mode === "register" && (
         <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Name"
-          className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
-        />
-      )}
-      <input
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        placeholder="Email"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Name"
+        data-testid="auth-name"
         className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
       />
+      )}
+      <input
+      value={email}
+      onChange={(event) => setEmail(event.target.value)}
+      placeholder="Email"
+      data-testid="auth-email"
+      className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
+    />
       <input
         value={password}
         onChange={(event) => setPassword(event.target.value)}
-        type="password"
-        placeholder="Password"
-        className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
-      />
+      type="password"
+      placeholder="Password"
+      data-testid="auth-password"
+      className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
+    />
 
       {authError && (
         <div className="mt-2 text-[11px] text-destructive">{authError}</div>
@@ -322,6 +346,7 @@ const AuthPanel = ({
       <button
         onClick={submit}
         disabled={isSubmitting || !email || !password}
+        data-testid="auth-submit"
         className="mt-2 w-full rounded bg-primary px-2 py-2 font-medium text-primary-foreground disabled:opacity-40"
       >
         {isSubmitting ? "Submitting..." : mode === "login" ? "Login" : "Create account"}

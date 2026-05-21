@@ -128,6 +128,7 @@ const OrderForm = ({
       <div className="flex border-b border-trading-border">
         <button
           onClick={() => setSide("BUY")}
+          data-testid="order-side-buy"
           className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
             side === "BUY"
               ? "border-b-2 border-trading-buy text-trading-buy"
@@ -138,6 +139,7 @@ const OrderForm = ({
         </button>
         <button
           onClick={() => setSide("SELL")}
+          data-testid="order-side-sell"
           className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
             side === "SELL"
               ? "border-b-2 border-trading-sell text-trading-sell"
@@ -205,6 +207,7 @@ const OrderForm = ({
               <input
                 type="text"
                 value={rawPrice}
+                data-testid="order-price"
                 onChange={(event) => {
                   setUserEditedPrice(true);
                   setRawPrice(event.target.value);
@@ -240,6 +243,7 @@ const OrderForm = ({
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             placeholder="0"
+            data-testid="order-amount"
             className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none focus:border-primary"
           />
         </div>
@@ -266,6 +270,7 @@ const OrderForm = ({
             value={total > 0 ? total.toLocaleString() : ""}
             readOnly
             placeholder="0"
+            data-testid="order-total"
             className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none"
           />
         </div>
@@ -293,14 +298,19 @@ const OrderForm = ({
         )}
 
         {submitError && (
-          <div className="text-[11px] text-destructive">{submitError}</div>
+          <div className="text-[11px] text-destructive" data-testid="order-error">
+            {submitError}
+          </div>
         )}
         {submitMessage && (
-          <div className="text-[11px] text-emerald-500">{submitMessage}</div>
+          <div className="text-[11px] text-emerald-500" data-testid="order-message">
+            {submitMessage}
+          </div>
         )}
 
         <button
           onClick={handleSubmit}
+          data-testid="submit-order"
           disabled={
             isSubmitting ||
             !authToken ||
