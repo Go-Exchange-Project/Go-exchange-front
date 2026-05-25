@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 import { Wallet, createOrder, isUnauthorizedError } from "@/lib/api";
+import {
+  MIN_KRW_ORDER_NOTIONAL,
+  addKRWTick,
+  formatKRWPrice,
+  isKRWTickAligned,
+  krwTickSize,
+  subtractKRWTick,
+} from "@/lib/orderPolicy";
 
 interface OrderFormProps {
   symbol: string;
@@ -33,6 +41,13 @@ const OrderForm = ({
 
   const amountNumber = Number(normalizeDecimalInput(amount));
   const total = price * (Number.isFinite(amountNumber) ? amountNumber : 0);
+  const tickSize = krwTickSize(price);
+  const hasInvalidTick = price > 0 && !isKRWTickAligned(price);
+  const isBelowMinimumOrder =
+    amountNumber > 0 &&
+    Number.isFinite(total) &&
+    total > 0 &&
+    total < MIN_KRW_ORDER_NOTIONAL;
   const selectedWallet = wallets.find((wallet) =>
     side === "BUY" ? wallet.coin_symbol === "KRW" : wallet.coin_symbol === symbol,
   );
@@ -49,13 +64,13 @@ const OrderForm = ({
   useEffect(() => {
     if (!userEditedPrice) {
       onPriceChange(currentPrice);
-      setRawPrice(formatPrice(currentPrice));
+      setRawPrice(formatKRWPrice(currentPrice));
     }
   }, [currentPrice, onPriceChange, userEditedPrice]);
 
   useEffect(() => {
     if (!userEditedPrice) {
-      setRawPrice(formatPrice(price));
+      setRawPrice(formatKRWPrice(price));
     }
   }, [price, userEditedPrice]);
 
@@ -99,6 +114,16 @@ const OrderForm = ({
     }
     if (Number(normalizedPrice) <= 0) {
       setSubmitError("Enter a valid price.");
+      return;
+    }
+    if (!isKRWTickAligned(Number(normalizedPrice))) {
+      setSubmitError(`Price must align with the ${formatKRWPrice(tickSize)} KRW tick.`);
+      return;
+    }
+    if (Number(normalizedPrice) * amountNumber < MIN_KRW_ORDER_NOTIONAL) {
+      setSubmitError(
+        `Total must be at least ${MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW.`,
+      );
       return;
     }
     if (hasInsufficientBalance) {
@@ -198,12 +223,9 @@ const OrderForm = ({
               <button
                 type="button"
                 onClick={() => {
-                  const nextPrice = Math.max(
-                    0,
-                    price - (price >= 1000000 ? 1000 : 1),
-                  );
+                  const nextPrice = subtractKRWTick(price);
                   setUserEditedPrice(true);
-                  setRawPrice(formatPrice(nextPrice));
+                  setRawPrice(formatKRWPrice(nextPrice));
                   onPriceChange(nextPrice);
                 }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -221,15 +243,15 @@ const OrderForm = ({
                     Number(normalizeDecimalInput(event.target.value)) || 0,
                   );
                 }}
-                onBlur={() => setRawPrice(formatPrice(price))}
+                onBlur={() => setRawPrice(formatKRWPrice(price))}
                 className="flex-1 bg-transparent py-1.5 text-center font-mono text-sm text-foreground outline-none"
               />
               <button
                 type="button"
                 onClick={() => {
-                  const nextPrice = price + (price >= 1000000 ? 1000 : 1);
+                  const nextPrice = addKRWTick(price);
                   setUserEditedPrice(true);
-                  setRawPrice(formatPrice(nextPrice));
+                  setRawPrice(formatKRWPrice(nextPrice));
                   onPriceChange(nextPrice);
                 }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -281,6 +303,15 @@ const OrderForm = ({
           />
         </div>
 
+        <div className="flex justify-between text-[11px] text-muted-foreground">
+          <span>Min total</span>
+          <span className="font-mono">{MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW</span>
+        </div>
+        <div className="flex justify-between text-[11px] text-muted-foreground">
+          <span>Tick size</span>
+          <span className="font-mono">{formatKRWPrice(tickSize)} KRW</span>
+        </div>
+
         {amountNumber > 0 && (
           <div className="rounded border border-trading-border bg-muted px-2 py-2 text-[11px]">
             <div className="flex justify-between">
@@ -298,6 +329,16 @@ const OrderForm = ({
             {hasInsufficientBalance && (
               <div className="mt-1 text-destructive">
                 Available balance is not enough for this order.
+              </div>
+            )}
+            {isBelowMinimumOrder && (
+              <div className="mt-1 text-destructive">
+                Total must be at least {MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW.
+              </div>
+            )}
+            {hasInvalidTick && (
+              <div className="mt-1 text-destructive">
+                Price must align with the {formatKRWPrice(tickSize)} KRW tick.
               </div>
             )}
           </div>
@@ -323,6 +364,8 @@ const OrderForm = ({
             orderType !== "limit" ||
             !price ||
             !(amountNumber > 0) ||
+            hasInvalidTick ||
+            isBelowMinimumOrder ||
             hasInsufficientBalance
           }
           className={`mt-auto w-full rounded py-3 text-sm font-bold transition-colors disabled:opacity-40 ${
@@ -343,9 +386,6 @@ const OrderForm = ({
 };
 
 const normalizeDecimalInput = (value: string) => value.replace(/,/g, "").trim();
-
-const formatPrice = (value: number) =>
-  value < 1 ? value.toFixed(4) : value.toLocaleString();
 
 const formatBalance = (value: number) => {
   if (!Number.isFinite(value)) return "0";
