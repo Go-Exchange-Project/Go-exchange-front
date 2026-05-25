@@ -52,6 +52,8 @@ $env:E2E_DEV_TOOLS_TOKEN="e2e-dev-token"
 npm run test:e2e
 ```
 
+The app uses `VITE_WS_URL` for the WebSocket stream. If it is not set, it defaults to `ws://localhost:8080/ws`.
+
 ## Coverage
 
 - Browser flow: register, fund KRW, place a buy order, cancel it, and verify available/locked balances.

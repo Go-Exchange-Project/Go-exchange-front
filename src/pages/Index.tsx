@@ -19,9 +19,11 @@ import {
   fetchWallets,
   isUnauthorizedError,
 } from "@/lib/api";
+import { webSocketReconnectDelay } from "@/lib/reconnect";
 
 const TOKEN_STORAGE_KEY = "goexchange.auth.token";
 const USER_STORAGE_KEY = "goexchange.auth.user";
+const WEBSOCKET_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080/ws";
 
 interface UpbitTicker {
   market: string;
@@ -200,52 +202,98 @@ const Index = () => {
   }, [refreshAccount]);
 
   useEffect(() => {
-    try {
-      const ws = new WebSocket("ws://localhost:8080/ws");
-      wsRef.current = ws;
-      ws.onmessage = (event) => {
-        const data = parseWebSocketMessage(event.data);
-        if (!data) return;
+    let stopped = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-        if (data.type === "ticker") {
-          const symbol = data.code.replace("KRW-", "");
-          if (symbol === selectedSymbolRef.current) {
-            setCurrentPrice(data.price);
-          }
-        } else if (data.type === "orderbook") {
-          const snapshotSymbol = data.data?.coin_symbol;
-          if (snapshotSymbol && snapshotSymbol !== selectedSymbolRef.current) {
-            return;
-          }
-          setAsks(
-            (data.data?.asks || []).map((ask) => ({
-              price: Number(ask.price),
-              amount: Number(ask.quantity),
-            })),
-          );
-          setBids(
-            (data.data?.bids || []).map((bid) => ({
-              price: Number(bid.price),
-              amount: Number(bid.quantity),
-            })),
-          );
-        } else if (data.type === "trade") {
-          const trade = toTradeHistoryEntry(data.data);
-          if (!trade) return;
-          if (trade.coinSymbol && trade.coinSymbol !== selectedSymbolRef.current) {
-            return;
-          }
-          setTrades((prev) => [trade, ...prev].slice(0, 50));
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (stopped) return;
+      const delay = webSocketReconnectDelay(reconnectAttempt);
+      reconnectAttempt += 1;
+      clearReconnectTimer();
+      reconnectTimer = setTimeout(connect, delay);
+    };
+
+    const handleMessage = (event: MessageEvent<string>) => {
+      const data = parseWebSocketMessage(event.data);
+      if (!data) return;
+
+      if (data.type === "ticker") {
+        const symbol = data.code.replace("KRW-", "");
+        if (symbol === selectedSymbolRef.current) {
+          setCurrentPrice(data.price);
+        }
+      } else if (data.type === "orderbook") {
+        const snapshotSymbol = data.data?.coin_symbol;
+        if (snapshotSymbol && snapshotSymbol !== selectedSymbolRef.current) {
+          return;
+        }
+        setAsks(
+          (data.data?.asks || []).map((ask) => ({
+            price: Number(ask.price),
+            amount: Number(ask.quantity),
+          })),
+        );
+        setBids(
+          (data.data?.bids || []).map((bid) => ({
+            price: Number(bid.price),
+            amount: Number(bid.quantity),
+          })),
+        );
+      } else if (data.type === "trade") {
+        const trade = toTradeHistoryEntry(data.data);
+        if (!trade) return;
+        if (trade.coinSymbol && trade.coinSymbol !== selectedSymbolRef.current) {
+          return;
+        }
+        setTrades((prev) => [trade, ...prev].slice(0, 50));
+        if (authTokenRef.current) {
+          refreshAccountRef.current();
+        }
+      }
+    };
+
+    function connect() {
+      if (stopped) return;
+      try {
+        const ws = new WebSocket(WEBSOCKET_URL);
+        wsRef.current = ws;
+        ws.onopen = () => {
+          reconnectAttempt = 0;
           if (authTokenRef.current) {
             refreshAccountRef.current();
           }
-        }
-      };
-      ws.onerror = () => {};
-      return () => ws.close();
-    } catch {
-      // WebSocket is optional during local frontend-only development.
+        };
+        ws.onmessage = handleMessage;
+        ws.onerror = () => {
+          ws.close();
+        };
+        ws.onclose = () => {
+          if (wsRef.current === ws) {
+            wsRef.current = null;
+          }
+          scheduleReconnect();
+        };
+      } catch {
+        scheduleReconnect();
+      }
     }
+
+    connect();
+
+    return () => {
+      stopped = true;
+      clearReconnectTimer();
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
   }, []);
 
   const handlePriceClick = useCallback((price: number) => {
