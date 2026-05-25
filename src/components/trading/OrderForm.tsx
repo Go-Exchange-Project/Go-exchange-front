@@ -8,6 +8,7 @@ import {
   krwTickSize,
   minOrderNotional,
   subtractKRWTick,
+  tradingFeeRate,
 } from "@/lib/orderPolicy";
 
 interface OrderFormProps {
@@ -45,6 +46,8 @@ const OrderForm = ({
   const amountNumber = Number(normalizeDecimalInput(amount));
   const total = price * (Number.isFinite(amountNumber) ? amountNumber : 0);
   const minimumOrderNotional = minOrderNotional(marketRules);
+  const feeRate = tradingFeeRate(marketRules);
+  const feeRatePercent = Number.isFinite(feeRate) ? feeRate * 100 : 0;
   const tickSize = krwTickSize(price, marketRules);
   const hasInvalidTick = price > 0 && !isKRWTickAligned(price, marketRules);
   const isBelowMinimumOrder =
@@ -314,6 +317,10 @@ const OrderForm = ({
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Tick size</span>
           <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
+        </div>
+        <div className="flex justify-between text-[11px] text-muted-foreground">
+          <span>Fee rate</span>
+          <span className="font-mono">{feeRatePercent.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%</span>
         </div>
 
         {amountNumber > 0 && (

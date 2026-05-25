@@ -8,6 +8,7 @@ import {
   krwTickSize,
   minOrderNotional,
   subtractKRWTick,
+  tradingFeeRate,
 } from "./orderPolicy";
 
 describe("KRW order policy", () => {
@@ -50,6 +51,7 @@ describe("KRW order policy", () => {
       coin_symbol: "BTC",
       quote_symbol: "KRW",
       min_order_notional: "10000",
+      fee_rate: "0.001",
       tick_rules: [
         { upper_bound: "1000", tick_size: "1" },
         { upper_bound: null, tick_size: "50" },
@@ -57,6 +59,7 @@ describe("KRW order policy", () => {
     };
 
     expect(minOrderNotional(rules)).toBe(10000);
+    expect(tradingFeeRate(rules)).toBe(0.001);
     expect(krwTickSize(5000, rules)).toBe(50);
     expect(isKRWTickAligned(5050, rules)).toBe(true);
     expect(isKRWTickAligned(5051, rules)).toBe(false);
@@ -67,6 +70,7 @@ describe("KRW order policy", () => {
       coin_symbol: "ETH",
       quote_symbol: "KRW",
       min_order_notional: "5000",
+      fee_rate: "0.0005",
     });
   });
 });

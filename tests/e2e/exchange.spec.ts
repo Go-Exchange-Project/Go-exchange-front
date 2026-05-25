@@ -120,7 +120,7 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
       const buyerWallets = await fetchWallets(request, buyer.token);
       return walletBalance(buyerWallets, "BTC")?.available_balance ?? "0";
     })
-    .toBe("1");
+    .toBe("0.9995");
 
   const buyerWallets = await fetchWallets(request, buyer.token);
   const sellerWallets = await fetchWallets(request, seller.token);
@@ -132,7 +132,7 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
     locked_balance: "0",
   });
   expect(walletBalance(sellerWallets, "KRW")).toMatchObject({
-    available_balance: "5000",
+    available_balance: "4997.5",
     locked_balance: "0",
   });
   expect(walletBalance(sellerWallets, "BTC")).toMatchObject({
@@ -205,6 +205,7 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
     coin_symbol: "BTC",
     quote_symbol: "KRW",
     min_order_notional: "5000",
+    fee_rate: "0.0005",
     tick_rules: expect.arrayContaining([
       { upper_bound: "10000", tick_size: "5" },
       { upper_bound: null, tick_size: "1000" },
@@ -273,7 +274,7 @@ test("incoming buy skips the user's own best ask and matches another seller", as
 
   expect(findOrder(traderOrders, ownSell.order_id)?.status).toBe("PENDING");
   expect(walletBalance(traderWallets, coinSymbol)).toMatchObject({
-    available_balance: "1",
+    available_balance: "0.9995",
     locked_balance: "1",
   });
   expect(walletBalance(traderWallets, "KRW")).toMatchObject({
@@ -281,7 +282,7 @@ test("incoming buy skips the user's own best ask and matches another seller", as
     locked_balance: "0",
   });
   expect(walletBalance(otherSellerWallets, "KRW")).toMatchObject({
-    available_balance: "5100",
+    available_balance: "5097.45",
     locked_balance: "0",
   });
 });
@@ -328,7 +329,7 @@ test("partially filled buy order releases only remaining KRW when cancelled", as
     locked_balance: "0",
   });
   expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
-    available_balance: "1",
+    available_balance: "0.9995",
     locked_balance: "0",
   });
   expect(findOrder(buyerOrders, buyOrder.order_id)).toMatchObject({
@@ -373,11 +374,11 @@ test("buyer receives KRW refund when a limit buy gets price improvement", async 
     locked_balance: "0",
   });
   expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
-    available_balance: "1",
+    available_balance: "0.9995",
     locked_balance: "0",
   });
   expect(walletBalance(sellerWallets, "KRW")).toMatchObject({
-    available_balance: "5000",
+    available_balance: "4997.5",
     locked_balance: "0",
   });
 });

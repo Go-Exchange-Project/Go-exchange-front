@@ -7,10 +7,12 @@ export interface MarketRules {
   coin_symbol: string;
   quote_symbol: string;
   min_order_notional: string;
+  fee_rate: string;
   tick_rules: MarketTickRule[];
 }
 
 export const MIN_KRW_ORDER_NOTIONAL = 5000;
+export const DEFAULT_TRADING_FEE_RATE = 0.0005;
 
 const KRW_TICK_RULES = [
   { upper_bound: "1", tick_size: "0.00001" },
@@ -30,12 +32,17 @@ export function fallbackKRWMarketRules(coinSymbol: string): MarketRules {
     coin_symbol: coinSymbol.toUpperCase(),
     quote_symbol: "KRW",
     min_order_notional: String(MIN_KRW_ORDER_NOTIONAL),
+    fee_rate: String(DEFAULT_TRADING_FEE_RATE),
     tick_rules: [...KRW_TICK_RULES],
   };
 }
 
 export function minOrderNotional(rules?: MarketRules | null) {
   return Number(rules?.min_order_notional ?? MIN_KRW_ORDER_NOTIONAL);
+}
+
+export function tradingFeeRate(rules?: MarketRules | null) {
+  return Number(rules?.fee_rate ?? DEFAULT_TRADING_FEE_RATE);
 }
 
 export function krwTickSize(price: number, rules?: MarketRules | null) {
