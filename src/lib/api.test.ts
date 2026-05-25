@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchWallets, isUnauthorizedError } from "./api";
+import { ApiError, fetchMarketRules, fetchWallets, isUnauthorizedError } from "./api";
 
 describe("apiRequest error handling", () => {
   afterEach(() => {
@@ -58,5 +58,29 @@ describe("apiRequest error handling", () => {
     expect(isUnauthorizedError(new ApiError(409, "CONFLICT", "conflict"))).toBe(
       false,
     );
+  });
+
+  it("fetches public market rules with the selected coin symbol", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain("/markets/rules?coin_symbol=BTC");
+      return new Response(
+        JSON.stringify({
+          coin_symbol: "BTC",
+          quote_symbol: "KRW",
+          min_order_notional: "5000",
+          tick_rules: [{ upper_bound: null, tick_size: "1000" }],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchMarketRules("BTC")).resolves.toMatchObject({
+      coin_symbol: "BTC",
+      min_order_notional: "5000",
+    });
   });
 });

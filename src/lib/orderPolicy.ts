@@ -1,69 +1,104 @@
+export interface MarketTickRule {
+  upper_bound: string | null;
+  tick_size: string;
+}
+
+export interface MarketRules {
+  coin_symbol: string;
+  quote_symbol: string;
+  min_order_notional: string;
+  tick_rules: MarketTickRule[];
+}
+
 export const MIN_KRW_ORDER_NOTIONAL = 5000;
 
 const KRW_TICK_RULES = [
-  { upperBound: 1, tickSize: 0.00001 },
-  { upperBound: 10, tickSize: 0.01 },
-  { upperBound: 100, tickSize: 0.1 },
-  { upperBound: 1000, tickSize: 1 },
-  { upperBound: 10000, tickSize: 5 },
-  { upperBound: 100000, tickSize: 10 },
-  { upperBound: 500000, tickSize: 50 },
-  { upperBound: 1000000, tickSize: 100 },
-  { upperBound: 2000000, tickSize: 500 },
+  { upper_bound: "1", tick_size: "0.00001" },
+  { upper_bound: "10", tick_size: "0.01" },
+  { upper_bound: "100", tick_size: "0.1" },
+  { upper_bound: "1000", tick_size: "1" },
+  { upper_bound: "10000", tick_size: "5" },
+  { upper_bound: "100000", tick_size: "10" },
+  { upper_bound: "500000", tick_size: "50" },
+  { upper_bound: "1000000", tick_size: "100" },
+  { upper_bound: "2000000", tick_size: "500" },
+  { upper_bound: null, tick_size: "1000" },
 ] as const;
 
-const MAX_KRW_TICK_SIZE = 1000;
+export function fallbackKRWMarketRules(coinSymbol: string): MarketRules {
+  return {
+    coin_symbol: coinSymbol.toUpperCase(),
+    quote_symbol: "KRW",
+    min_order_notional: String(MIN_KRW_ORDER_NOTIONAL),
+    tick_rules: [...KRW_TICK_RULES],
+  };
+}
 
-export function krwTickSize(price: number) {
+export function minOrderNotional(rules?: MarketRules | null) {
+  return Number(rules?.min_order_notional ?? MIN_KRW_ORDER_NOTIONAL);
+}
+
+export function krwTickSize(price: number, rules?: MarketRules | null) {
   if (!Number.isFinite(price) || price <= 0) {
     return 1;
   }
 
-  for (const rule of KRW_TICK_RULES) {
-    if (price < rule.upperBound) {
-      return rule.tickSize;
+  const tickRules = rules?.tick_rules?.length
+    ? rules.tick_rules
+    : fallbackKRWMarketRules("BTC").tick_rules;
+  for (const rule of tickRules) {
+    const tickSize = Number(rule.tick_size);
+    if (!Number.isFinite(tickSize) || tickSize <= 0) {
+      continue;
+    }
+    if (rule.upper_bound === null) {
+      return tickSize;
+    }
+    const upperBound = Number(rule.upper_bound);
+    if (Number.isFinite(upperBound) && price < upperBound) {
+      return tickSize;
     }
   }
-  return MAX_KRW_TICK_SIZE;
+  return 1;
 }
 
-export function isKRWTickAligned(price: number) {
+export function isKRWTickAligned(price: number, rules?: MarketRules | null) {
   if (!Number.isFinite(price) || price <= 0) {
     return false;
   }
 
-  const tick = krwTickSize(price);
+  const tick = krwTickSize(price, rules);
   const ratio = price / tick;
   return Math.abs(ratio - Math.round(ratio)) < 1e-8;
 }
 
-export function addKRWTick(price: number) {
-  return normalizeKRWPrice(price + krwTickSize(price));
+export function addKRWTick(price: number, rules?: MarketRules | null) {
+  return normalizeKRWPrice(price + krwTickSize(price, rules), rules);
 }
 
-export function subtractKRWTick(price: number) {
-  const tick = krwTickSize(price);
-  return normalizeKRWPrice(Math.max(tick, price - tick));
+export function subtractKRWTick(price: number, rules?: MarketRules | null) {
+  const tick = krwTickSize(price, rules);
+  return normalizeKRWPrice(Math.max(tick, price - tick), rules);
 }
 
-export function formatKRWPrice(price: number) {
+export function formatKRWPrice(price: number, rules?: MarketRules | null) {
   if (!Number.isFinite(price)) {
     return "";
   }
 
-  const decimals = decimalPlaces(krwTickSize(Math.abs(price)));
+  const decimals = decimalPlaces(krwTickSize(Math.abs(price), rules));
   return price.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
 }
 
-export function normalizeKRWPrice(price: number) {
+export function normalizeKRWPrice(price: number, rules?: MarketRules | null) {
   if (!Number.isFinite(price)) {
     return 0;
   }
 
-  const decimals = decimalPlaces(krwTickSize(Math.abs(price)));
+  const decimals = decimalPlaces(krwTickSize(Math.abs(price), rules));
   return Number(price.toFixed(decimals));
 }
 

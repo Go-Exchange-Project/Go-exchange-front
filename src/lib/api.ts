@@ -1,3 +1,5 @@
+import type { MarketRules } from "./orderPolicy";
+
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 const DEV_TOOLS_TOKEN = import.meta.env.VITE_DEV_TOOLS_TOKEN?.trim() ?? "";
@@ -130,6 +132,11 @@ export async function fetchOrders(
   limit = 10,
 ): Promise<{ orders: Order[] }> {
   return apiRequest<{ orders: Order[] }>(`/orders?limit=${limit}`, { token });
+}
+
+export async function fetchMarketRules(coinSymbol: string): Promise<MarketRules> {
+  const params = new URLSearchParams({ coin_symbol: coinSymbol });
+  return apiRequest<MarketRules>(`/markets/rules?${params.toString()}`);
 }
 
 export async function fundWallet(

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   MIN_KRW_ORDER_NOTIONAL,
   addKRWTick,
+  fallbackKRWMarketRules,
   formatKRWPrice,
   isKRWTickAligned,
   krwTickSize,
+  minOrderNotional,
   subtractKRWTick,
 } from "./orderPolicy";
 
@@ -41,5 +43,30 @@ describe("KRW order policy", () => {
 
   it("defines the minimum KRW order notional", () => {
     expect(MIN_KRW_ORDER_NOTIONAL).toBe(5000);
+  });
+
+  it("can calculate from API-provided market rules", () => {
+    const rules = {
+      coin_symbol: "BTC",
+      quote_symbol: "KRW",
+      min_order_notional: "10000",
+      tick_rules: [
+        { upper_bound: "1000", tick_size: "1" },
+        { upper_bound: null, tick_size: "50" },
+      ],
+    };
+
+    expect(minOrderNotional(rules)).toBe(10000);
+    expect(krwTickSize(5000, rules)).toBe(50);
+    expect(isKRWTickAligned(5050, rules)).toBe(true);
+    expect(isKRWTickAligned(5051, rules)).toBe(false);
+  });
+
+  it("creates fallback rules for the selected symbol", () => {
+    expect(fallbackKRWMarketRules("eth")).toMatchObject({
+      coin_symbol: "ETH",
+      quote_symbol: "KRW",
+      min_order_notional: "5000",
+    });
   });
 });

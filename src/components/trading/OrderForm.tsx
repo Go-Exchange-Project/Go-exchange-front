@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Wallet, createOrder, isUnauthorizedError } from "@/lib/api";
 import {
-  MIN_KRW_ORDER_NOTIONAL,
+  MarketRules,
   addKRWTick,
   formatKRWPrice,
   isKRWTickAligned,
   krwTickSize,
+  minOrderNotional,
   subtractKRWTick,
 } from "@/lib/orderPolicy";
 
@@ -16,6 +17,7 @@ interface OrderFormProps {
   onPriceChange: (price: number) => void;
   authToken: string | null;
   wallets: Wallet[];
+  marketRules: MarketRules;
   onAuthExpired: () => void;
   onOrderAccepted: () => void;
 }
@@ -27,6 +29,7 @@ const OrderForm = ({
   onPriceChange,
   authToken,
   wallets,
+  marketRules,
   onAuthExpired,
   onOrderAccepted,
 }: OrderFormProps) => {
@@ -41,13 +44,14 @@ const OrderForm = ({
 
   const amountNumber = Number(normalizeDecimalInput(amount));
   const total = price * (Number.isFinite(amountNumber) ? amountNumber : 0);
-  const tickSize = krwTickSize(price);
-  const hasInvalidTick = price > 0 && !isKRWTickAligned(price);
+  const minimumOrderNotional = minOrderNotional(marketRules);
+  const tickSize = krwTickSize(price, marketRules);
+  const hasInvalidTick = price > 0 && !isKRWTickAligned(price, marketRules);
   const isBelowMinimumOrder =
     amountNumber > 0 &&
     Number.isFinite(total) &&
     total > 0 &&
-    total < MIN_KRW_ORDER_NOTIONAL;
+    total < minimumOrderNotional;
   const selectedWallet = wallets.find((wallet) =>
     side === "BUY" ? wallet.coin_symbol === "KRW" : wallet.coin_symbol === symbol,
   );
@@ -64,15 +68,15 @@ const OrderForm = ({
   useEffect(() => {
     if (!userEditedPrice) {
       onPriceChange(currentPrice);
-      setRawPrice(formatKRWPrice(currentPrice));
+      setRawPrice(formatKRWPrice(currentPrice, marketRules));
     }
-  }, [currentPrice, onPriceChange, userEditedPrice]);
+  }, [currentPrice, marketRules, onPriceChange, userEditedPrice]);
 
   useEffect(() => {
     if (!userEditedPrice) {
-      setRawPrice(formatKRWPrice(price));
+      setRawPrice(formatKRWPrice(price, marketRules));
     }
-  }, [price, userEditedPrice]);
+  }, [marketRules, price, userEditedPrice]);
 
   const handlePercentage = (pct: number) => {
     if (!Number.isFinite(availableBalance) || availableBalance <= 0) return;
@@ -116,13 +120,13 @@ const OrderForm = ({
       setSubmitError("Enter a valid price.");
       return;
     }
-    if (!isKRWTickAligned(Number(normalizedPrice))) {
-      setSubmitError(`Price must align with the ${formatKRWPrice(tickSize)} KRW tick.`);
+    if (!isKRWTickAligned(Number(normalizedPrice), marketRules)) {
+      setSubmitError(`Price must align with the ${formatKRWPrice(tickSize, marketRules)} KRW tick.`);
       return;
     }
-    if (Number(normalizedPrice) * amountNumber < MIN_KRW_ORDER_NOTIONAL) {
+    if (Number(normalizedPrice) * amountNumber < minimumOrderNotional) {
       setSubmitError(
-        `Total must be at least ${MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW.`,
+        `Total must be at least ${minimumOrderNotional.toLocaleString()} KRW.`,
       );
       return;
     }
@@ -223,9 +227,9 @@ const OrderForm = ({
               <button
                 type="button"
                 onClick={() => {
-                  const nextPrice = subtractKRWTick(price);
+                  const nextPrice = subtractKRWTick(price, marketRules);
                   setUserEditedPrice(true);
-                  setRawPrice(formatKRWPrice(nextPrice));
+                  setRawPrice(formatKRWPrice(nextPrice, marketRules));
                   onPriceChange(nextPrice);
                 }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -243,15 +247,15 @@ const OrderForm = ({
                     Number(normalizeDecimalInput(event.target.value)) || 0,
                   );
                 }}
-                onBlur={() => setRawPrice(formatKRWPrice(price))}
+                onBlur={() => setRawPrice(formatKRWPrice(price, marketRules))}
                 className="flex-1 bg-transparent py-1.5 text-center font-mono text-sm text-foreground outline-none"
               />
               <button
                 type="button"
                 onClick={() => {
-                  const nextPrice = addKRWTick(price);
+                  const nextPrice = addKRWTick(price, marketRules);
                   setUserEditedPrice(true);
-                  setRawPrice(formatKRWPrice(nextPrice));
+                  setRawPrice(formatKRWPrice(nextPrice, marketRules));
                   onPriceChange(nextPrice);
                 }}
                 className="px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -305,11 +309,11 @@ const OrderForm = ({
 
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Min total</span>
-          <span className="font-mono">{MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW</span>
+          <span className="font-mono">{minimumOrderNotional.toLocaleString()} KRW</span>
         </div>
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Tick size</span>
-          <span className="font-mono">{formatKRWPrice(tickSize)} KRW</span>
+          <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
         </div>
 
         {amountNumber > 0 && (
@@ -333,12 +337,12 @@ const OrderForm = ({
             )}
             {isBelowMinimumOrder && (
               <div className="mt-1 text-destructive">
-                Total must be at least {MIN_KRW_ORDER_NOTIONAL.toLocaleString()} KRW.
+                Total must be at least {minimumOrderNotional.toLocaleString()} KRW.
               </div>
             )}
             {hasInvalidTick && (
               <div className="mt-1 text-destructive">
-                Price must align with the {formatKRWPrice(tickSize)} KRW tick.
+                Price must align with the {formatKRWPrice(tickSize, marketRules)} KRW tick.
               </div>
             )}
           </div>

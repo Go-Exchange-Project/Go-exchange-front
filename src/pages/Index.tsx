@@ -15,10 +15,12 @@ import {
   AuthUser,
   Order,
   Wallet,
+  fetchMarketRules,
   fetchOrders,
   fetchWallets,
   isUnauthorizedError,
 } from "@/lib/api";
+import { MarketRules, fallbackKRWMarketRules } from "@/lib/orderPolicy";
 import { webSocketReconnectDelay } from "@/lib/reconnect";
 
 const TOKEN_STORAGE_KEY = "goexchange.auth.token";
@@ -91,6 +93,9 @@ const Index = () => {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [marketRules, setMarketRules] = useState<MarketRules>(() =>
+    fallbackKRWMarketRules("BTC"),
+  );
 
   const clearAuthState = useCallback(() => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -196,6 +201,26 @@ const Index = () => {
     setBids([]);
     setTrades([]);
   }, [selectedCoin.price, selectedSymbol]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchMarketRules(selectedSymbol)
+      .then((rules) => {
+        if (!cancelled) {
+          setMarketRules(rules);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMarketRules(fallbackKRWMarketRules(selectedSymbol));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSymbol]);
 
   useEffect(() => {
     refreshAccount();
@@ -357,6 +382,7 @@ const Index = () => {
               onPriceChange={setOrderPrice}
               authToken={authToken}
               wallets={wallets}
+              marketRules={marketRules}
               onAuthExpired={handleAuthExpired}
               onOrderAccepted={refreshAccount}
             />

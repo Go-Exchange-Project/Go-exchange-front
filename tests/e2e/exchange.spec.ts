@@ -195,6 +195,23 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(insufficientBalance.status()).toBe(409);
 });
 
+test("market rules API exposes KRW minimum notional and tick sizes", async ({
+  request,
+}) => {
+  const response = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=btc`);
+
+  expect(response.status()).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    coin_symbol: "BTC",
+    quote_symbol: "KRW",
+    min_order_notional: "5000",
+    tick_rules: expect.arrayContaining([
+      { upper_bound: "10000", tick_size: "5" },
+      { upper_bound: null, tick_size: "1000" },
+    ]),
+  });
+});
+
 test("protected APIs return structured auth errors and dev tools require a dev token", async ({
   request,
 }) => {
