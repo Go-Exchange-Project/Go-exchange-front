@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchMarketRules, fetchWallets, isUnauthorizedError } from "./api";
+import {
+  ApiError,
+  fetchMarketRules,
+  fetchTrades,
+  fetchWallets,
+  isUnauthorizedError,
+} from "./api";
 
 describe("apiRequest error handling", () => {
   afterEach(() => {
@@ -83,6 +89,57 @@ describe("apiRequest error handling", () => {
       coin_symbol: "BTC",
       min_order_notional: "5000",
       fee_rate: "0.0005",
+    });
+  });
+
+  it("fetches authenticated trade history with fee fields", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("/trades?limit=5");
+      expect(new Headers(init?.headers).get("Authorization")).toBe(
+        "Bearer account-token",
+      );
+      return new Response(
+        JSON.stringify({
+          trades: [
+            {
+              id: 1,
+              idempotency_key: "trade-key",
+              engine_sequence: 11,
+              engine_event_id: "trade-11",
+              coin_symbol: "BTC",
+              side: "BUY",
+              price: "5000",
+              quantity: "1",
+              fee_rate: "0.0005",
+              buyer_fee: "0.0005",
+              buyer_fee_asset: "BTC",
+              seller_fee: "2.5",
+              seller_fee_asset: "KRW",
+              traded_at: "2026-05-26T00:00:00Z",
+              buy_order_id: 2,
+              sell_order_id: 1,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchTrades("account-token", 5)).resolves.toMatchObject({
+      trades: [
+        {
+          side: "BUY",
+          fee_rate: "0.0005",
+          buyer_fee: "0.0005",
+          buyer_fee_asset: "BTC",
+          seller_fee: "2.5",
+          seller_fee_asset: "KRW",
+        },
+      ],
     });
   });
 });

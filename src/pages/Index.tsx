@@ -14,9 +14,11 @@ import {
   AuthResponse,
   AuthUser,
   Order,
+  Trade,
   Wallet,
   fetchMarketRules,
   fetchOrders,
+  fetchTrades,
   fetchWallets,
   isUnauthorizedError,
 } from "@/lib/api";
@@ -92,6 +94,7 @@ const Index = () => {
   });
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [accountTrades, setAccountTrades] = useState<Trade[]>([]);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [marketRules, setMarketRules] = useState<MarketRules>(() =>
     fallbackKRWMarketRules("BTC"),
@@ -104,6 +107,7 @@ const Index = () => {
     setAuthUser(null);
     setWallets([]);
     setOrders([]);
+    setAccountTrades([]);
   }, []);
 
   const handleAuthExpired = useCallback(() => {
@@ -115,17 +119,20 @@ const Index = () => {
     if (!authToken) {
       setWallets([]);
       setOrders([]);
+      setAccountTrades([]);
       setAccountError(null);
       return;
     }
 
     try {
-      const [walletResult, orderResult] = await Promise.all([
+      const [walletResult, orderResult, tradeResult] = await Promise.all([
         fetchWallets(authToken),
         fetchOrders(authToken, 10),
+        fetchTrades(authToken, 10),
       ]);
       setWallets(walletResult.wallets);
       setOrders(orderResult.orders);
+      setAccountTrades(tradeResult.trades);
       setAccountError(null);
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -367,6 +374,7 @@ const Index = () => {
             user={authUser}
             wallets={wallets}
             orders={orders}
+            trades={accountTrades}
             error={accountError}
             selectedSymbol={selectedSymbol}
             onAuth={handleAuth}

@@ -39,6 +39,25 @@ export interface Order {
   created_at: string;
 }
 
+export interface Trade {
+  id: number;
+  idempotency_key: string;
+  engine_sequence: number;
+  engine_event_id: string;
+  coin_symbol: string;
+  side: "BUY" | "SELL";
+  price: string;
+  quantity: string;
+  fee_rate: string;
+  buyer_fee: string;
+  buyer_fee_asset: string;
+  seller_fee: string;
+  seller_fee_asset: string;
+  traded_at: string;
+  buy_order_id: number;
+  sell_order_id: number;
+}
+
 export interface CancelOrderResponse {
   message: string;
   order_id: number;
@@ -132,6 +151,13 @@ export async function fetchOrders(
   limit = 10,
 ): Promise<{ orders: Order[] }> {
   return apiRequest<{ orders: Order[] }>(`/orders?limit=${limit}`, { token });
+}
+
+export async function fetchTrades(
+  token: string,
+  limit = 10,
+): Promise<{ trades: Trade[] }> {
+  return apiRequest<{ trades: Trade[] }>(`/trades?limit=${limit}`, { token });
 }
 
 export async function fetchMarketRules(coinSymbol: string): Promise<MarketRules> {

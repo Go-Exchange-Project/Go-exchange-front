@@ -41,6 +41,23 @@ interface OrdersResponse {
   orders: OrderResponse[];
 }
 
+interface TradeResponse {
+  id: number;
+  side: "BUY" | "SELL";
+  coin_symbol: string;
+  price: string;
+  quantity: string;
+  fee_rate: string;
+  buyer_fee: string;
+  buyer_fee_asset: string;
+  seller_fee: string;
+  seller_fee_asset: string;
+}
+
+interface TradesResponse {
+  trades: TradeResponse[];
+}
+
 interface CancelOrderResponse {
   status: "CANCELLED";
   released_asset: string;
@@ -126,6 +143,8 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
   const sellerWallets = await fetchWallets(request, seller.token);
   const buyerOrders = await fetchOrders(request, buyer.token);
   const sellerOrders = await fetchOrders(request, seller.token);
+  const buyerTrades = await fetchTrades(request, buyer.token);
+  const sellerTrades = await fetchTrades(request, seller.token);
 
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
     available_balance: "0",
@@ -141,6 +160,28 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
   });
   expect(findOrder(buyerOrders, buyOrder.order_id)?.status).toBe("FILLED");
   expect(findOrder(sellerOrders, sellOrder.order_id)?.status).toBe("FILLED");
+  expect(buyerTrades.trades[0]).toMatchObject({
+    side: "BUY",
+    coin_symbol: "BTC",
+    price: "5000",
+    quantity: "1",
+    fee_rate: "0.0005",
+    buyer_fee: "0.0005",
+    buyer_fee_asset: "BTC",
+    seller_fee: "2.5",
+    seller_fee_asset: "KRW",
+  });
+  expect(sellerTrades.trades[0]).toMatchObject({
+    side: "SELL",
+    coin_symbol: "BTC",
+    price: "5000",
+    quantity: "1",
+    fee_rate: "0.0005",
+    buyer_fee: "0.0005",
+    buyer_fee_asset: "BTC",
+    seller_fee: "2.5",
+    seller_fee_asset: "KRW",
+  });
 });
 
 test("order validation uses precise HTTP status codes", async ({ request }) => {
@@ -516,6 +557,14 @@ async function fetchOrders(request: APIRequestContext, token: string) {
   });
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as OrdersResponse;
+}
+
+async function fetchTrades(request: APIRequestContext, token: string) {
+  const response = await request.get(`${apiBaseURL}/trades?limit=20`, {
+    headers: authHeaders(token),
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as TradesResponse;
 }
 
 async function expectErrorCode(

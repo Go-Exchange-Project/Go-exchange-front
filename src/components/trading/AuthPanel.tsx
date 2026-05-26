@@ -4,6 +4,7 @@ import {
   AuthUser,
   DEV_TOOLS_ENABLED,
   Order,
+  Trade,
   Wallet,
   cancelOrder,
   fundWallet,
@@ -18,6 +19,7 @@ interface AuthPanelProps {
   user: AuthUser | null;
   wallets: Wallet[];
   orders: Order[];
+  trades: Trade[];
   error: string | null;
   selectedSymbol: string;
   onAuth: (auth: AuthResponse) => void;
@@ -31,6 +33,7 @@ const AuthPanel = ({
   user,
   wallets,
   orders,
+  trades,
   error,
   selectedSymbol,
   onAuth,
@@ -272,6 +275,58 @@ const AuthPanel = ({
           </div>
         </div>
 
+        <div className="mt-2 rounded border border-trading-border bg-muted">
+          <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
+            <span className="text-muted-foreground">My trades</span>
+            <span
+              className="font-mono text-foreground"
+              data-testid="account-trade-count"
+            >
+              {trades.length}
+            </span>
+          </div>
+          <div className="max-h-28 overflow-y-auto px-2 py-1">
+            {trades.length === 0 ? (
+              <div className="py-1 text-muted-foreground">No trades</div>
+            ) : (
+              trades.slice(0, 6).map((trade) => {
+                const fee = tradeFeeForSide(trade);
+                return (
+                  <div
+                    key={trade.id}
+                    className="grid grid-cols-[44px_1fr] gap-2 py-1"
+                    data-testid="account-trade-row"
+                  >
+                    <span
+                      className={`font-medium ${
+                        trade.side === "BUY"
+                          ? "text-trading-buy"
+                          : "text-trading-sell"
+                      }`}
+                    >
+                      {trade.side}
+                    </span>
+                    <div className="min-w-0 font-mono text-[11px]">
+                      <div className="truncate text-foreground">
+                        {trade.coin_symbol} {trade.quantity} @ {trade.price}
+                      </div>
+                      <div
+                        className="truncate text-muted-foreground"
+                        data-testid={`account-trade-fee-${trade.id}`}
+                      >
+                        Fee {fee.amount} {fee.asset}
+                      </div>
+                      <div className="truncate text-muted-foreground">
+                        {formatTradeTime(trade.traded_at)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         {DEV_TOOLS_ENABLED && (
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
@@ -366,5 +421,27 @@ const AuthPanel = ({
     </div>
   );
 };
+
+function tradeFeeForSide(trade: Trade) {
+  if (trade.side === "BUY") {
+    return {
+      amount: trade.buyer_fee,
+      asset: trade.buyer_fee_asset,
+    };
+  }
+
+  return {
+    amount: trade.seller_fee,
+    asset: trade.seller_fee_asset,
+  };
+}
+
+function formatTradeTime(value: string) {
+  const tradedAt = new Date(value);
+  if (Number.isNaN(tradedAt.getTime())) {
+    return value;
+  }
+  return tradedAt.toLocaleTimeString();
+}
 
 export default AuthPanel;
