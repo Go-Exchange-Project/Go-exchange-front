@@ -32,8 +32,10 @@ interface WalletsResponse {
 interface OrderResponse {
   id: number;
   side: "BUY" | "SELL";
+  order_type: "LIMIT" | "MARKET";
   status: "PENDING" | "PARTIAL" | "FILLED" | "CANCELLED";
   filled_amount: string;
+  filled_quote_amount: string;
   remaining: string;
 }
 
@@ -424,6 +426,100 @@ test("buyer receives KRW refund when a limit buy gets price improvement", async 
   });
 });
 
+test("market buy spends KRW budget, settles fees, and releases unused KRW", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("MBUY");
+  const seller = await register(request, "market-buy-seller");
+  const buyer = await register(request, "market-buy-buyer");
+
+  await fundWallet(request, seller.token, coinSymbol, "1");
+  await fundWallet(request, buyer.token, "KRW", "10000");
+
+  const sellOrder = await createOrder(request, seller.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+  const marketBuy = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "MARKET",
+    price: "0",
+    amount: "0",
+    quote_amount: "10000",
+  });
+
+  await waitForOrderStatus(request, seller.token, sellOrder.order_id, "FILLED");
+  await waitForOrderStatus(request, buyer.token, marketBuy.order_id, "CANCELLED");
+
+  const buyerWallets = await fetchWallets(request, buyer.token);
+  const buyerOrders = await fetchOrders(request, buyer.token);
+  expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
+    available_balance: "5000",
+    locked_balance: "0",
+  });
+  expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
+    available_balance: "0.9995",
+    locked_balance: "0",
+  });
+  expect(findOrder(buyerOrders, marketBuy.order_id)).toMatchObject({
+    order_type: "MARKET",
+    status: "CANCELLED",
+    filled_amount: "1",
+    filled_quote_amount: "5000",
+  });
+});
+
+test("market sell consumes the best bid and never rests on the order book", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("MSELL");
+  const buyer = await register(request, "market-sell-buyer");
+  const seller = await register(request, "market-sell-seller");
+
+  await fundWallet(request, buyer.token, "KRW", "5000");
+  await fundWallet(request, seller.token, coinSymbol, "1");
+
+  const buyOrder = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+  const marketSell = await createOrder(request, seller.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "MARKET",
+    price: "0",
+    amount: "1",
+    quote_amount: "0",
+  });
+
+  await waitForOrderStatus(request, buyer.token, buyOrder.order_id, "FILLED");
+  await waitForOrderStatus(request, seller.token, marketSell.order_id, "FILLED");
+
+  const sellerWallets = await fetchWallets(request, seller.token);
+  const sellerOrders = await fetchOrders(request, seller.token);
+  expect(walletBalance(sellerWallets, coinSymbol)).toMatchObject({
+    available_balance: "0",
+    locked_balance: "0",
+  });
+  expect(walletBalance(sellerWallets, "KRW")).toMatchObject({
+    available_balance: "4997.5",
+    locked_balance: "0",
+  });
+  expect(findOrder(sellerOrders, marketSell.order_id)).toMatchObject({
+    order_type: "MARKET",
+    status: "FILLED",
+    filled_amount: "1",
+    filled_quote_amount: "5000",
+  });
+});
+
 test("duplicate cancel does not release locked balance twice", async ({
   request,
 }) => {
@@ -514,9 +610,10 @@ async function createOrder(
   data: {
     coin_symbol: string;
     side: "BUY" | "SELL";
-    order_type: "LIMIT";
-    price: string;
-    amount: string;
+    order_type: "LIMIT" | "MARKET";
+    price?: string;
+    amount?: string;
+    quote_amount?: string;
   },
 ) {
   const response = await request.post(`${apiBaseURL}/orders`, {

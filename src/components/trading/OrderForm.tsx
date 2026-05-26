@@ -44,13 +44,22 @@ const OrderForm = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const amountNumber = Number(normalizeDecimalInput(amount));
-  const total = price * (Number.isFinite(amountNumber) ? amountNumber : 0);
+  const isMarketOrder = orderType === "market";
+  const isMarketBuy = isMarketOrder && side === "BUY";
+  const isLimitOrder = orderType === "limit";
+  const total = isMarketBuy
+    ? Number.isFinite(amountNumber)
+      ? amountNumber
+      : 0
+    : price * (Number.isFinite(amountNumber) ? amountNumber : 0);
   const minimumOrderNotional = minOrderNotional(marketRules);
   const feeRate = tradingFeeRate(marketRules);
   const feeRatePercent = Number.isFinite(feeRate) ? feeRate * 100 : 0;
   const tickSize = krwTickSize(price, marketRules);
-  const hasInvalidTick = price > 0 && !isKRWTickAligned(price, marketRules);
+  const hasInvalidTick =
+    isLimitOrder && price > 0 && !isKRWTickAligned(price, marketRules);
   const isBelowMinimumOrder =
+    (isLimitOrder || isMarketBuy) &&
     amountNumber > 0 &&
     Number.isFinite(total) &&
     total > 0 &&
@@ -84,6 +93,10 @@ const OrderForm = ({
   const handlePercentage = (pct: number) => {
     if (!Number.isFinite(availableBalance) || availableBalance <= 0) return;
 
+    if (isMarketBuy) {
+      setAmount(((availableBalance * pct) / 100).toFixed(0));
+      return;
+    }
     if (side === "BUY" && price > 0) {
       setAmount(((availableBalance * pct) / 100 / price).toFixed(8));
       return;
@@ -92,12 +105,9 @@ const OrderForm = ({
   };
 
   const selectOrderType = (value: "limit" | "market") => {
-    if (value === "market") {
-      setSubmitMessage(null);
-      setSubmitError("Market orders are not supported yet.");
-      return;
-    }
     setOrderType(value);
+    setAmount("");
+    setSubmitMessage(null);
     setSubmitError(null);
   };
 
@@ -111,23 +121,21 @@ const OrderForm = ({
       setSubmitError("Login is required before placing orders.");
       return;
     }
-    if (orderType !== "limit") {
-      setSubmitError("Market orders are not supported yet.");
+    if (!normalizedAmount || Number(normalizedAmount) <= 0) {
+      setSubmitError(
+        isMarketBuy ? "Enter a valid KRW order amount." : "Enter a valid amount.",
+      );
       return;
     }
-    if (!normalizedPrice || !normalizedAmount || Number(normalizedAmount) <= 0) {
-      setSubmitError("Enter a valid price and amount.");
-      return;
-    }
-    if (Number(normalizedPrice) <= 0) {
+    if (isLimitOrder && (!normalizedPrice || Number(normalizedPrice) <= 0)) {
       setSubmitError("Enter a valid price.");
       return;
     }
-    if (!isKRWTickAligned(Number(normalizedPrice), marketRules)) {
+    if (isLimitOrder && !isKRWTickAligned(Number(normalizedPrice), marketRules)) {
       setSubmitError(`Price must align with the ${formatKRWPrice(tickSize, marketRules)} KRW tick.`);
       return;
     }
-    if (Number(normalizedPrice) * amountNumber < minimumOrderNotional) {
+    if ((isLimitOrder || isMarketBuy) && total < minimumOrderNotional) {
       setSubmitError(
         `Total must be at least ${minimumOrderNotional.toLocaleString()} KRW.`,
       );
@@ -143,9 +151,10 @@ const OrderForm = ({
       const result = await createOrder(authToken, {
         coin_symbol: symbol,
         side,
-        order_type: "LIMIT",
-        price: normalizedPrice,
-        amount: normalizedAmount,
+        order_type: isMarketOrder ? "MARKET" : "LIMIT",
+        price: isMarketOrder ? "0" : normalizedPrice,
+        amount: isMarketBuy ? "0" : normalizedAmount,
+        quote_amount: isMarketBuy ? normalizedAmount : "0",
       });
       setSubmitMessage(`Order accepted #${result.order_id}`);
       setAmount("");
@@ -195,8 +204,8 @@ const OrderForm = ({
             <button
               key={value}
               onClick={() => selectOrderType(value)}
-              disabled={value === "market"}
-              className={`rounded px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              data-testid={`order-type-${value}`}
+              className={`rounded px-3 py-1 text-xs transition-colors ${
                 orderType === value
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -271,7 +280,7 @@ const OrderForm = ({
 
         <div>
           <label className="mb-1 block text-[11px] text-muted-foreground">
-            Amount ({symbol})
+            {isMarketBuy ? "Order amount (KRW)" : `Amount (${symbol})`}
           </label>
           <input
             type="text"
@@ -298,7 +307,7 @@ const OrderForm = ({
 
         <div>
           <label className="mb-1 block text-[11px] text-muted-foreground">
-            Total (KRW)
+            {isMarketBuy ? "Market buy budget (KRW)" : "Total (KRW)"}
           </label>
           <input
             type="text"
@@ -314,10 +323,12 @@ const OrderForm = ({
           <span>Min total</span>
           <span className="font-mono">{minimumOrderNotional.toLocaleString()} KRW</span>
         </div>
-        <div className="flex justify-between text-[11px] text-muted-foreground">
-          <span>Tick size</span>
-          <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
-        </div>
+        {isLimitOrder && (
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>Tick size</span>
+            <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
+          </div>
+        )}
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Fee rate</span>
           <span className="font-mono">{feeRatePercent.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%</span>
@@ -372,8 +383,7 @@ const OrderForm = ({
           disabled={
             isSubmitting ||
             !authToken ||
-            orderType !== "limit" ||
-            !price ||
+            (isLimitOrder && !price) ||
             !(amountNumber > 0) ||
             hasInvalidTick ||
             isBelowMinimumOrder ||

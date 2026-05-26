@@ -34,7 +34,9 @@ export interface Order {
   status: "PENDING" | "PARTIAL" | "FILLED" | "CANCELLED";
   price: string;
   amount: string;
+  quote_amount: string;
   filled_amount: string;
+  filled_quote_amount: string;
   remaining: string;
   created_at: string;
 }
@@ -118,9 +120,10 @@ export async function createOrder(
   input: {
     coin_symbol: string;
     side: "BUY" | "SELL";
-    order_type: "LIMIT";
-    price: string;
-    amount: string;
+    order_type: "LIMIT" | "MARKET";
+    price?: string;
+    amount?: string;
+    quote_amount?: string;
   },
 ): Promise<{ message: string; order_id: number }> {
   return apiRequest<{ message: string; order_id: number }>("/orders", {
