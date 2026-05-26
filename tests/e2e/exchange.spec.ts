@@ -520,6 +520,89 @@ test("market sell consumes the best bid and never rests on the order book", asyn
   });
 });
 
+test("market buy with no liquidity cancels and releases the full KRW budget", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("MBUYEMPTY");
+  const buyer = await register(request, "market-buy-empty");
+
+  await fundWallet(request, buyer.token, "KRW", "7000");
+
+  const marketBuy = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "MARKET",
+    price: "0",
+    amount: "0",
+    quote_amount: "7000",
+  });
+
+  await waitForOrderStatus(request, buyer.token, marketBuy.order_id, "CANCELLED");
+
+  const buyerWallets = await fetchWallets(request, buyer.token);
+  const buyerOrders = await fetchOrders(request, buyer.token);
+  const buyerTrades = await fetchTrades(request, buyer.token);
+  expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
+    available_balance: "7000",
+    locked_balance: "0",
+  });
+  expect(findOrder(buyerOrders, marketBuy.order_id)).toMatchObject({
+    order_type: "MARKET",
+    status: "CANCELLED",
+    filled_amount: "0",
+    filled_quote_amount: "0",
+  });
+  expect(buyerTrades.trades).toHaveLength(0);
+});
+
+test("market buy skips the user's own ask and releases the unfilled budget", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("MBUYSELF");
+  const trader = await register(request, "market-buy-self");
+
+  await fundWallet(request, trader.token, coinSymbol, "1");
+  await fundWallet(request, trader.token, "KRW", "5000");
+
+  const ownSell = await createOrder(request, trader.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+  const marketBuy = await createOrder(request, trader.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "MARKET",
+    price: "0",
+    amount: "0",
+    quote_amount: "5000",
+  });
+
+  await waitForOrderStatus(request, trader.token, marketBuy.order_id, "CANCELLED");
+
+  const traderOrders = await fetchOrders(request, trader.token);
+  const traderWallets = await fetchWallets(request, trader.token);
+  const traderTrades = await fetchTrades(request, trader.token);
+  expect(findOrder(traderOrders, ownSell.order_id)?.status).toBe("PENDING");
+  expect(findOrder(traderOrders, marketBuy.order_id)).toMatchObject({
+    order_type: "MARKET",
+    status: "CANCELLED",
+    filled_amount: "0",
+    filled_quote_amount: "0",
+  });
+  expect(walletBalance(traderWallets, "KRW")).toMatchObject({
+    available_balance: "5000",
+    locked_balance: "0",
+  });
+  expect(walletBalance(traderWallets, coinSymbol)).toMatchObject({
+    available_balance: "0",
+    locked_balance: "1",
+  });
+  expect(traderTrades.trades).toHaveLength(0);
+});
+
 test("duplicate cancel does not release locked balance twice", async ({
   request,
 }) => {

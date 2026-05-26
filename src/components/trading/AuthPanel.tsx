@@ -252,10 +252,10 @@ const AuthPanel = ({
                   </span>
                   <div className="min-w-0 font-mono text-[11px]">
                     <div className="truncate text-foreground">
-                      {order.coin_symbol} {order.remaining}
+                      {orderPrimaryText(order)}
                     </div>
                     <div className="truncate text-muted-foreground">
-                      @ {order.price}
+                      {orderSecondaryText(order)}
                     </div>
                   </div>
                   <button
@@ -442,6 +442,20 @@ function formatTradeTime(value: string) {
     return value;
   }
   return tradedAt.toLocaleTimeString();
+}
+
+function orderPrimaryText(order: Order) {
+  if (order.order_type === "MARKET" && order.side === "BUY") {
+    return `${order.coin_symbol} budget ${order.quote_amount} KRW`;
+  }
+  return `${order.coin_symbol} ${order.remaining}`;
+}
+
+function orderSecondaryText(order: Order) {
+  if (order.order_type === "MARKET") {
+    return "Market";
+  }
+  return `@ ${order.price}`;
 }
 
 export default AuthPanel;
