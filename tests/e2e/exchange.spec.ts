@@ -225,6 +225,32 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   });
   expect(belowMinimum.status()).toBe(422);
 
+  const invalidQuantityStep = await request.post(`${apiBaseURL}/orders`, {
+    headers: authHeaders(user.token),
+    data: {
+      coin_symbol: "BTC",
+      side: "SELL",
+      order_type: "MARKET",
+      price: "0",
+      amount: "0.000000015",
+      quote_amount: "0",
+    },
+  });
+  expect(invalidQuantityStep.status()).toBe(422);
+
+  const invalidXRPQuantityStep = await request.post(`${apiBaseURL}/orders`, {
+    headers: authHeaders(user.token),
+    data: {
+      coin_symbol: "XRP",
+      side: "SELL",
+      order_type: "MARKET",
+      price: "0",
+      amount: "1.5",
+      quote_amount: "0",
+    },
+  });
+  expect(invalidXRPQuantityStep.status()).toBe(422);
+
   const insufficientBalance = await request.post(`${apiBaseURL}/orders`, {
     headers: authHeaders(user.token),
     data: {
@@ -248,11 +274,21 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
     coin_symbol: "BTC",
     quote_symbol: "KRW",
     min_order_notional: "5000",
+    min_order_quantity: "0.00000001",
+    base_quantity_step: "0.00000001",
     fee_rate: "0.0005",
     tick_rules: expect.arrayContaining([
       { upper_bound: "10000", tick_size: "5" },
       { upper_bound: null, tick_size: "1000" },
     ]),
+  });
+
+  const xrpResponse = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=xrp`);
+  expect(xrpResponse.status()).toBe(200);
+  await expect(xrpResponse.json()).resolves.toMatchObject({
+    coin_symbol: "XRP",
+    min_order_quantity: "1",
+    base_quantity_step: "1",
   });
 });
 

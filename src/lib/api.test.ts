@@ -74,6 +74,8 @@ describe("apiRequest error handling", () => {
           coin_symbol: "BTC",
           quote_symbol: "KRW",
           min_order_notional: "5000",
+          min_order_quantity: "0.00000001",
+          base_quantity_step: "0.00000001",
           fee_rate: "0.0005",
           tick_rules: [{ upper_bound: null, tick_size: "1000" }],
         }),
@@ -88,6 +90,8 @@ describe("apiRequest error handling", () => {
     await expect(fetchMarketRules("BTC")).resolves.toMatchObject({
       coin_symbol: "BTC",
       min_order_notional: "5000",
+      min_order_quantity: "0.00000001",
+      base_quantity_step: "0.00000001",
       fee_rate: "0.0005",
     });
   });

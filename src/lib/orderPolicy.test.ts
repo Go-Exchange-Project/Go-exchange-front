@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   MIN_KRW_ORDER_NOTIONAL,
   addKRWTick,
+  baseQuantityStep,
   fallbackKRWMarketRules,
   formatKRWPrice,
+  isBaseQuantityAtLeastMinimum,
+  isBaseQuantityStepAligned,
   isKRWTickAligned,
   krwTickSize,
+  minOrderQuantity,
   minOrderNotional,
   subtractKRWTick,
   tradingFeeRate,
@@ -51,6 +55,8 @@ describe("KRW order policy", () => {
       coin_symbol: "BTC",
       quote_symbol: "KRW",
       min_order_notional: "10000",
+      min_order_quantity: "0.0001",
+      base_quantity_step: "0.0001",
       fee_rate: "0.001",
       tick_rules: [
         { upper_bound: "1000", tick_size: "1" },
@@ -59,10 +65,16 @@ describe("KRW order policy", () => {
     };
 
     expect(minOrderNotional(rules)).toBe(10000);
+    expect(minOrderQuantity(rules)).toBe(0.0001);
+    expect(baseQuantityStep(rules)).toBe("0.0001");
     expect(tradingFeeRate(rules)).toBe(0.001);
     expect(krwTickSize(5000, rules)).toBe(50);
     expect(isKRWTickAligned(5050, rules)).toBe(true);
     expect(isKRWTickAligned(5051, rules)).toBe(false);
+    expect(isBaseQuantityAtLeastMinimum("0.0001", rules)).toBe(true);
+    expect(isBaseQuantityAtLeastMinimum("0.00009", rules)).toBe(false);
+    expect(isBaseQuantityStepAligned("0.1234", rules)).toBe(true);
+    expect(isBaseQuantityStepAligned("0.12345", rules)).toBe(false);
   });
 
   it("creates fallback rules for the selected symbol", () => {
@@ -70,7 +82,32 @@ describe("KRW order policy", () => {
       coin_symbol: "ETH",
       quote_symbol: "KRW",
       min_order_notional: "5000",
+      min_order_quantity: "0.0000001",
+      base_quantity_step: "0.0000001",
       fee_rate: "0.0005",
     });
+  });
+
+  it("uses coin-specific fallback base quantity rules", () => {
+    expect(fallbackKRWMarketRules("btc")).toMatchObject({
+      min_order_quantity: "0.00000001",
+      base_quantity_step: "0.00000001",
+    });
+    expect(fallbackKRWMarketRules("xrp")).toMatchObject({
+      min_order_quantity: "1",
+      base_quantity_step: "1",
+    });
+    expect(fallbackKRWMarketRules("unknown")).toMatchObject({
+      min_order_quantity: "0.00000001",
+      base_quantity_step: "0.00000001",
+    });
+  });
+
+  it("validates fallback base quantity precision without floating point rounding", () => {
+    expect(isBaseQuantityStepAligned("0.00000001")).toBe(true);
+    expect(isBaseQuantityStepAligned("1.000000010")).toBe(true);
+    expect(isBaseQuantityStepAligned("0.000000015")).toBe(false);
+    expect(isBaseQuantityAtLeastMinimum("0.00000001")).toBe(true);
+    expect(isBaseQuantityAtLeastMinimum("0.000000001")).toBe(false);
   });
 });

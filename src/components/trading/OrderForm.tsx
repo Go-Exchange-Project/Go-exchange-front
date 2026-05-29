@@ -3,9 +3,13 @@ import { Wallet, createOrder, isUnauthorizedError } from "@/lib/api";
 import {
   MarketRules,
   addKRWTick,
+  baseQuantityStep,
   formatKRWPrice,
+  isBaseQuantityAtLeastMinimum,
+  isBaseQuantityStepAligned,
   isKRWTickAligned,
   krwTickSize,
+  minOrderQuantity,
   minOrderNotional,
   subtractKRWTick,
   tradingFeeRate,
@@ -43,16 +47,20 @@ const OrderForm = ({
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const amountNumber = Number(normalizeDecimalInput(amount));
+  const normalizedAmount = normalizeDecimalInput(amount);
+  const amountNumber = Number(normalizedAmount);
   const isMarketOrder = orderType === "market";
   const isMarketBuy = isMarketOrder && side === "BUY";
   const isLimitOrder = orderType === "limit";
+  const usesBaseQuantity = !isMarketBuy;
   const total = isMarketBuy
     ? Number.isFinite(amountNumber)
       ? amountNumber
       : 0
     : price * (Number.isFinite(amountNumber) ? amountNumber : 0);
   const minimumOrderNotional = minOrderNotional(marketRules);
+  const minimumOrderQuantity = minOrderQuantity(marketRules);
+  const quantityStep = baseQuantityStep(marketRules);
   const feeRate = tradingFeeRate(marketRules);
   const feeRatePercent = Number.isFinite(feeRate) ? feeRate * 100 : 0;
   const tickSize = krwTickSize(price, marketRules);
@@ -64,6 +72,16 @@ const OrderForm = ({
     Number.isFinite(total) &&
     total > 0 &&
     total < minimumOrderNotional;
+  const hasInvalidQuantityStep =
+    usesBaseQuantity &&
+    amountNumber > 0 &&
+    normalizedAmount !== "" &&
+    !isBaseQuantityStepAligned(normalizedAmount, marketRules);
+  const isBelowMinimumQuantity =
+    usesBaseQuantity &&
+    amountNumber > 0 &&
+    normalizedAmount !== "" &&
+    !isBaseQuantityAtLeastMinimum(normalizedAmount, marketRules);
   const selectedWallet = wallets.find((wallet) =>
     side === "BUY" ? wallet.coin_symbol === "KRW" : wallet.coin_symbol === symbol,
   );
@@ -112,7 +130,6 @@ const OrderForm = ({
   };
 
   const handleSubmit = async () => {
-    const normalizedAmount = normalizeDecimalInput(amount);
     const normalizedPrice = normalizeDecimalInput(rawPrice) || String(price);
     setSubmitMessage(null);
     setSubmitError(null);
@@ -133,6 +150,14 @@ const OrderForm = ({
     }
     if (isLimitOrder && !isKRWTickAligned(Number(normalizedPrice), marketRules)) {
       setSubmitError(`Price must align with the ${formatKRWPrice(tickSize, marketRules)} KRW tick.`);
+      return;
+    }
+    if (usesBaseQuantity && !isBaseQuantityAtLeastMinimum(normalizedAmount, marketRules)) {
+      setSubmitError(`Amount must be at least ${formatBalance(minimumOrderQuantity)} ${symbol}.`);
+      return;
+    }
+    if (usesBaseQuantity && !isBaseQuantityStepAligned(normalizedAmount, marketRules)) {
+      setSubmitError(`Amount must align with the ${quantityStep} ${symbol} step.`);
       return;
     }
     if ((isLimitOrder || isMarketBuy) && total < minimumOrderNotional) {
@@ -329,6 +354,22 @@ const OrderForm = ({
             <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
           </div>
         )}
+        {usesBaseQuantity && (
+          <>
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>Min amount</span>
+              <span className="font-mono">
+                {formatBalance(minimumOrderQuantity)} {symbol}
+              </span>
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>Amount step</span>
+              <span className="font-mono">
+                {quantityStep} {symbol}
+              </span>
+            </div>
+          </>
+        )}
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Fee rate</span>
           <span className="font-mono">{feeRatePercent.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%</span>
@@ -356,6 +397,16 @@ const OrderForm = ({
             {isBelowMinimumOrder && (
               <div className="mt-1 text-destructive">
                 Total must be at least {minimumOrderNotional.toLocaleString()} KRW.
+              </div>
+            )}
+            {isBelowMinimumQuantity && (
+              <div className="mt-1 text-destructive">
+                Amount must be at least {formatBalance(minimumOrderQuantity)} {symbol}.
+              </div>
+            )}
+            {hasInvalidQuantityStep && (
+              <div className="mt-1 text-destructive">
+                Amount must align with the {quantityStep} {symbol} step.
               </div>
             )}
             {hasInvalidTick && (
@@ -387,6 +438,8 @@ const OrderForm = ({
             !(amountNumber > 0) ||
             hasInvalidTick ||
             isBelowMinimumOrder ||
+            isBelowMinimumQuantity ||
+            hasInvalidQuantityStep ||
             hasInsufficientBalance
           }
           className={`mt-auto w-full rounded py-3 text-sm font-bold transition-colors disabled:opacity-40 ${

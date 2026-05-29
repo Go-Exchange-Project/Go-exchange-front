@@ -18,6 +18,8 @@ const marketRules: MarketRules = {
   coin_symbol: "BTC",
   quote_symbol: "KRW",
   min_order_notional: "5000",
+  min_order_quantity: "0.00000001",
+  base_quantity_step: "0.00000001",
   fee_rate: "0.0005",
   tick_rules: [{ upper_bound: null, tick_size: "1000" }],
 };
@@ -98,5 +100,31 @@ describe("OrderForm market orders", () => {
         quote_amount: "0",
       });
     });
+  });
+
+  it("blocks base quantity amounts below the market minimum", () => {
+    render(<OrderForm {...baseProps} />);
+
+    fireEvent.change(screen.getByTestId("order-amount"), {
+      target: { value: "0.000000001" },
+    });
+    expect(
+      screen.getByText("Amount must be at least 0.00000001 BTC."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("submit-order")).toBeDisabled();
+    expect(createOrderMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks base quantity amounts outside the configured step", () => {
+    render(<OrderForm {...baseProps} />);
+
+    fireEvent.change(screen.getByTestId("order-amount"), {
+      target: { value: "1.000000015" },
+    });
+    expect(
+      screen.getByText("Amount must align with the 0.00000001 BTC step."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("submit-order")).toBeDisabled();
+    expect(createOrderMock).not.toHaveBeenCalled();
   });
 });
