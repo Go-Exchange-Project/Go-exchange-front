@@ -73,6 +73,8 @@ describe("apiRequest error handling", () => {
         JSON.stringify({
           coin_symbol: "BTC",
           quote_symbol: "KRW",
+          trading_enabled: true,
+          trading_status: "ACTIVE",
           min_order_notional: "5000",
           min_order_quantity: "0.00000001",
           base_quantity_step: "0.00000001",
@@ -89,6 +91,8 @@ describe("apiRequest error handling", () => {
 
     await expect(fetchMarketRules("BTC")).resolves.toMatchObject({
       coin_symbol: "BTC",
+      trading_enabled: true,
+      trading_status: "ACTIVE",
       min_order_notional: "5000",
       min_order_quantity: "0.00000001",
       base_quantity_step: "0.00000001",

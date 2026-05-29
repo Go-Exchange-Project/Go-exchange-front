@@ -6,6 +6,8 @@ export interface MarketTickRule {
 export interface MarketRules {
   coin_symbol: string;
   quote_symbol: string;
+  trading_enabled: boolean;
+  trading_status: "ACTIVE" | "HALTED";
   min_order_notional: string;
   min_order_quantity: string;
   base_quantity_step: string;
@@ -17,6 +19,11 @@ export const MIN_KRW_ORDER_NOTIONAL = 5000;
 export const DEFAULT_TRADING_FEE_RATE = 0.0005;
 export const DEFAULT_MIN_ORDER_QUANTITY = "0.00000001";
 export const DEFAULT_BASE_QUANTITY_STEP = "0.00000001";
+export const DEFAULT_TRADING_STATUS = "ACTIVE";
+
+const MARKET_STATUSES: Record<string, MarketRules["trading_status"]> = {
+  HALT: "HALTED",
+};
 
 const BASE_QUANTITY_POLICIES: Record<
   string,
@@ -53,10 +60,13 @@ export function fallbackKRWMarketRules(coinSymbol: string): MarketRules {
   const normalizedSymbol = coinSymbol.toUpperCase();
   const quantityPolicy =
     BASE_QUANTITY_POLICIES[normalizedSymbol] ?? BASE_QUANTITY_POLICIES.BTC;
+  const tradingStatus = MARKET_STATUSES[normalizedSymbol] ?? DEFAULT_TRADING_STATUS;
 
   return {
     coin_symbol: normalizedSymbol,
     quote_symbol: "KRW",
+    trading_enabled: tradingStatus === "ACTIVE",
+    trading_status: tradingStatus,
     min_order_notional: String(MIN_KRW_ORDER_NOTIONAL),
     min_order_quantity: quantityPolicy.min_order_quantity,
     base_quantity_step: quantityPolicy.base_quantity_step,
@@ -71,6 +81,14 @@ export function minOrderNotional(rules?: MarketRules | null) {
 
 export function tradingFeeRate(rules?: MarketRules | null) {
   return Number(rules?.fee_rate ?? DEFAULT_TRADING_FEE_RATE);
+}
+
+export function tradingEnabled(rules?: MarketRules | null) {
+  return rules?.trading_enabled ?? true;
+}
+
+export function tradingStatus(rules?: MarketRules | null) {
+  return rules?.trading_status ?? DEFAULT_TRADING_STATUS;
 }
 
 export function minOrderQuantity(rules?: MarketRules | null) {

@@ -12,7 +12,9 @@ import {
   minOrderQuantity,
   minOrderNotional,
   subtractKRWTick,
+  tradingEnabled,
   tradingFeeRate,
+  tradingStatus,
 } from "@/lib/orderPolicy";
 
 interface OrderFormProps {
@@ -61,6 +63,8 @@ const OrderForm = ({
   const minimumOrderNotional = minOrderNotional(marketRules);
   const minimumOrderQuantity = minOrderQuantity(marketRules);
   const quantityStep = baseQuantityStep(marketRules);
+  const isTradingEnabled = tradingEnabled(marketRules);
+  const currentTradingStatus = tradingStatus(marketRules);
   const feeRate = tradingFeeRate(marketRules);
   const feeRatePercent = Number.isFinite(feeRate) ? feeRate * 100 : 0;
   const tickSize = krwTickSize(price, marketRules);
@@ -136,6 +140,10 @@ const OrderForm = ({
 
     if (!authToken) {
       setSubmitError("Login is required before placing orders.");
+      return;
+    }
+    if (!isTradingEnabled) {
+      setSubmitError(`${symbol} trading is currently ${currentTradingStatus.toLowerCase()}.`);
       return;
     }
     if (!normalizedAmount || Number(normalizedAmount) <= 0) {
@@ -254,6 +262,15 @@ const OrderForm = ({
             {formatBalance(lockedBalance)} {balanceAsset}
           </span>
         </div>
+
+        {!isTradingEnabled && (
+          <div
+            className="rounded border border-destructive/40 bg-destructive/10 px-2 py-2 text-[11px] text-destructive"
+            data-testid="market-status-warning"
+          >
+            {symbol} trading is currently {currentTradingStatus.toLowerCase()}.
+          </div>
+        )}
 
         {orderType === "limit" && (
           <div>
@@ -434,6 +451,7 @@ const OrderForm = ({
           disabled={
             isSubmitting ||
             !authToken ||
+            !isTradingEnabled ||
             (isLimitOrder && !price) ||
             !(amountNumber > 0) ||
             hasInvalidTick ||
@@ -452,6 +470,8 @@ const OrderForm = ({
             ? "Submitting..."
             : !authToken
               ? "Login required"
+              : !isTradingEnabled
+                ? `${symbol} trading halted`
               : `${side === "BUY" ? "Buy" : "Sell"} ${symbol}`}
         </button>
       </div>

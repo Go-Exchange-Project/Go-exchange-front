@@ -251,6 +251,18 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   });
   expect(invalidXRPQuantityStep.status()).toBe(422);
 
+  const haltedMarket = await request.post(`${apiBaseURL}/orders`, {
+    headers: authHeaders(user.token),
+    data: {
+      coin_symbol: "HALT",
+      side: "BUY",
+      order_type: "LIMIT",
+      price: "5000",
+      amount: "1",
+    },
+  });
+  expect(haltedMarket.status()).toBe(409);
+
   const insufficientBalance = await request.post(`${apiBaseURL}/orders`, {
     headers: authHeaders(user.token),
     data: {
@@ -273,6 +285,8 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
   await expect(response.json()).resolves.toMatchObject({
     coin_symbol: "BTC",
     quote_symbol: "KRW",
+    trading_enabled: true,
+    trading_status: "ACTIVE",
     min_order_notional: "5000",
     min_order_quantity: "0.00000001",
     base_quantity_step: "0.00000001",
@@ -287,8 +301,18 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
   expect(xrpResponse.status()).toBe(200);
   await expect(xrpResponse.json()).resolves.toMatchObject({
     coin_symbol: "XRP",
+    trading_enabled: true,
+    trading_status: "ACTIVE",
     min_order_quantity: "1",
     base_quantity_step: "1",
+  });
+
+  const haltedResponse = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=halt`);
+  expect(haltedResponse.status()).toBe(200);
+  await expect(haltedResponse.json()).resolves.toMatchObject({
+    coin_symbol: "HALT",
+    trading_enabled: false,
+    trading_status: "HALTED",
   });
 });
 

@@ -17,6 +17,8 @@ const createOrderMock = vi.mocked(createOrder);
 const marketRules: MarketRules = {
   coin_symbol: "BTC",
   quote_symbol: "KRW",
+  trading_enabled: true,
+  trading_status: "ACTIVE",
   min_order_notional: "5000",
   min_order_quantity: "0.00000001",
   base_quantity_step: "0.00000001",
@@ -124,6 +126,28 @@ describe("OrderForm market orders", () => {
     expect(
       screen.getByText("Amount must align with the 0.00000001 BTC step."),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("submit-order")).toBeDisabled();
+    expect(createOrderMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks order submission when the market is halted", () => {
+    render(
+      <OrderForm
+        {...baseProps}
+        marketRules={{
+          ...marketRules,
+          trading_enabled: false,
+          trading_status: "HALTED",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("market-status-warning")).toHaveTextContent(
+      "BTC trading is currently halted.",
+    );
+    expect(screen.getByTestId("submit-order")).toHaveTextContent(
+      "BTC trading halted",
+    );
     expect(screen.getByTestId("submit-order")).toBeDisabled();
     expect(createOrderMock).not.toHaveBeenCalled();
   });

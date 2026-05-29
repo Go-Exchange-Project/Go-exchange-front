@@ -13,6 +13,8 @@ import {
   minOrderNotional,
   subtractKRWTick,
   tradingFeeRate,
+  tradingEnabled,
+  tradingStatus,
 } from "./orderPolicy";
 
 describe("KRW order policy", () => {
@@ -54,6 +56,8 @@ describe("KRW order policy", () => {
     const rules = {
       coin_symbol: "BTC",
       quote_symbol: "KRW",
+      trading_enabled: true,
+      trading_status: "ACTIVE",
       min_order_notional: "10000",
       min_order_quantity: "0.0001",
       base_quantity_step: "0.0001",
@@ -65,6 +69,8 @@ describe("KRW order policy", () => {
     };
 
     expect(minOrderNotional(rules)).toBe(10000);
+    expect(tradingEnabled(rules)).toBe(true);
+    expect(tradingStatus(rules)).toBe("ACTIVE");
     expect(minOrderQuantity(rules)).toBe(0.0001);
     expect(baseQuantityStep(rules)).toBe("0.0001");
     expect(tradingFeeRate(rules)).toBe(0.001);
@@ -81,6 +87,8 @@ describe("KRW order policy", () => {
     expect(fallbackKRWMarketRules("eth")).toMatchObject({
       coin_symbol: "ETH",
       quote_symbol: "KRW",
+      trading_enabled: true,
+      trading_status: "ACTIVE",
       min_order_notional: "5000",
       min_order_quantity: "0.0000001",
       base_quantity_step: "0.0000001",
@@ -100,6 +108,21 @@ describe("KRW order policy", () => {
     expect(fallbackKRWMarketRules("unknown")).toMatchObject({
       min_order_quantity: "0.00000001",
       base_quantity_step: "0.00000001",
+    });
+  });
+
+  it("uses coin-specific fallback trading status rules", () => {
+    expect(fallbackKRWMarketRules("btc")).toMatchObject({
+      trading_enabled: true,
+      trading_status: "ACTIVE",
+    });
+    expect(fallbackKRWMarketRules("halt")).toMatchObject({
+      trading_enabled: false,
+      trading_status: "HALTED",
+    });
+    expect(fallbackKRWMarketRules("unknown")).toMatchObject({
+      trading_enabled: true,
+      trading_status: "ACTIVE",
     });
   });
 
