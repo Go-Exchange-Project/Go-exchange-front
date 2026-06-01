@@ -71,15 +71,17 @@ describe("apiRequest error handling", () => {
       expect(String(input)).toContain("/markets/rules?coin_symbol=BTC");
       return new Response(
         JSON.stringify({
-          coin_symbol: "BTC",
-          quote_symbol: "KRW",
-          trading_enabled: true,
-          trading_status: "ACTIVE",
-          min_order_notional: "5000",
-          min_order_quantity: "0.00000001",
-          base_quantity_step: "0.00000001",
-          fee_rate: "0.0005",
-          tick_rules: [{ upper_bound: null, tick_size: "1000" }],
+          data: {
+            coin_symbol: "BTC",
+            quote_symbol: "KRW",
+            trading_enabled: true,
+            trading_status: "ACTIVE",
+            min_order_notional: "5000",
+            min_order_quantity: "0.00000001",
+            base_quantity_step: "0.00000001",
+            fee_rate: "0.0005",
+            tick_rules: [{ upper_bound: null, tick_size: "1000" }],
+          },
         }),
         {
           status: 200,
@@ -108,26 +110,28 @@ describe("apiRequest error handling", () => {
       );
       return new Response(
         JSON.stringify({
-          trades: [
-            {
-              id: 1,
-              idempotency_key: "trade-key",
-              engine_sequence: 11,
-              engine_event_id: "trade-11",
-              coin_symbol: "BTC",
-              side: "BUY",
-              price: "5000",
-              quantity: "1",
-              fee_rate: "0.0005",
-              buyer_fee: "0.0005",
-              buyer_fee_asset: "BTC",
-              seller_fee: "2.5",
-              seller_fee_asset: "KRW",
-              traded_at: "2026-05-26T00:00:00Z",
-              buy_order_id: 2,
-              sell_order_id: 1,
-            },
-          ],
+          data: {
+            trades: [
+              {
+                id: 1,
+                idempotency_key: "trade-key",
+                engine_sequence: 11,
+                engine_event_id: "trade-11",
+                coin_symbol: "BTC",
+                side: "BUY",
+                price: "5000",
+                quantity: "1",
+                fee_rate: "0.0005",
+                buyer_fee: "0.0005",
+                buyer_fee_asset: "BTC",
+                seller_fee: "2.5",
+                seller_fee_asset: "KRW",
+                traded_at: "2026-05-26T00:00:00Z",
+                buy_order_id: 2,
+                sell_order_id: 1,
+              },
+            ],
+          },
         }),
         {
           status: 200,

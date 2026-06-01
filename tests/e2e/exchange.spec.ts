@@ -282,7 +282,7 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
   const response = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=btc`);
 
   expect(response.status()).toBe(200);
-  await expect(response.json()).resolves.toMatchObject({
+  await expect(responseData(response)).resolves.toMatchObject({
     coin_symbol: "BTC",
     quote_symbol: "KRW",
     trading_enabled: true,
@@ -299,7 +299,7 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
 
   const xrpResponse = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=xrp`);
   expect(xrpResponse.status()).toBe(200);
-  await expect(xrpResponse.json()).resolves.toMatchObject({
+  await expect(responseData(xrpResponse)).resolves.toMatchObject({
     coin_symbol: "XRP",
     trading_enabled: true,
     trading_status: "ACTIVE",
@@ -309,7 +309,7 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
 
   const haltedResponse = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=halt`);
   expect(haltedResponse.status()).toBe(200);
-  await expect(haltedResponse.json()).resolves.toMatchObject({
+  await expect(responseData(haltedResponse)).resolves.toMatchObject({
     coin_symbol: "HALT",
     trading_enabled: false,
     trading_status: "HALTED",
@@ -719,7 +719,7 @@ async function register(request: APIRequestContext, role: string) {
     },
   });
   expect(response.status()).toBe(201);
-  return (await response.json()) as AuthResponse;
+  return responseData<AuthResponse>(response);
 }
 
 async function fundWallet(
@@ -766,7 +766,7 @@ async function createOrder(
   if (!response.ok()) {
     throw new Error(`create order failed: ${response.status()} ${await response.text()}`);
   }
-  return (await response.json()) as { order_id: number };
+  return responseData<{ order_id: number }>(response);
 }
 
 async function cancelOrder(
@@ -780,7 +780,7 @@ async function cancelOrder(
   if (!response.ok()) {
     throw new Error(`cancel order failed: ${response.status()} ${await response.text()}`);
   }
-  return (await response.json()) as CancelOrderResponse;
+  return responseData<CancelOrderResponse>(response);
 }
 
 async function fetchWallets(request: APIRequestContext, token: string) {
@@ -788,7 +788,7 @@ async function fetchWallets(request: APIRequestContext, token: string) {
     headers: authHeaders(token),
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as WalletsResponse;
+  return responseData<WalletsResponse>(response);
 }
 
 async function fetchOrders(request: APIRequestContext, token: string) {
@@ -796,7 +796,7 @@ async function fetchOrders(request: APIRequestContext, token: string) {
     headers: authHeaders(token),
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as OrdersResponse;
+  return responseData<OrdersResponse>(response);
 }
 
 async function fetchTrades(request: APIRequestContext, token: string) {
@@ -804,7 +804,7 @@ async function fetchTrades(request: APIRequestContext, token: string) {
     headers: authHeaders(token),
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as TradesResponse;
+  return responseData<TradesResponse>(response);
 }
 
 async function expectErrorCode(
@@ -817,6 +817,16 @@ async function expectErrorCode(
       code,
     },
   });
+}
+
+async function responseData<T = unknown>(
+  response: Awaited<ReturnType<APIRequestContext["get"]>>,
+): Promise<T> {
+  const body = await response.json();
+  if (body && typeof body === "object" && "data" in body) {
+    return body.data as T;
+  }
+  return body as T;
 }
 
 function walletBalance(wallets: WalletsResponse, coinSymbol: string) {

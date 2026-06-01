@@ -78,6 +78,10 @@ interface ApiErrorPayload {
   message?: string;
 }
 
+interface ApiDataPayload<T> {
+  data?: T;
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -207,6 +211,13 @@ async function apiRequest<T>(
     throw new ApiError(response.status, code, message);
   }
 
+  return unwrapAPIData<T>(data);
+}
+
+function unwrapAPIData<T>(data: unknown): T {
+  if (isRecord(data) && "data" in data) {
+    return (data as ApiDataPayload<T>).data as T;
+  }
   return data as T;
 }
 
@@ -229,4 +240,8 @@ function parseAPIError(data: ApiErrorPayload) {
     code: data.code ?? "API_ERROR",
     message: data.message ?? "API request failed",
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
