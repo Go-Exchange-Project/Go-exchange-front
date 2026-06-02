@@ -88,6 +88,19 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await page.getByTestId("fund-krw").click();
   await expect(page.getByText("KRW available 1000000")).toBeVisible();
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+  await expect(page.getByTestId("balance-total-KRW")).toHaveText("1000000");
+
+  await page.getByTestId("fund-selected-asset").click();
+  await expect(page.getByText("BTC available 1")).toBeVisible();
+  await expect(page.getByTestId("selected-asset-available")).toHaveText("1");
+  await expect(page.getByTestId("balance-total-BTC")).toHaveText("1");
+  await expect
+    .poll(async () =>
+      page
+        .getByTestId("account-sidebar")
+        .evaluate((element) => element.scrollHeight > element.clientHeight),
+    )
+    .toBe(true);
 
   await page.getByTestId("order-price").fill("5000");
   await page.getByTestId("order-amount").fill("1");
@@ -96,15 +109,15 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await expect(page.getByTestId("order-message")).toContainText(
     "Order accepted",
   );
-  await expect(page.getByTestId("krw-available")).toHaveText("995000");
-  await expect(page.getByTestId("krw-locked")).toHaveText("5000");
+  await expect(page.getByTestId("krw-available")).toHaveText("994997.5");
+  await expect(page.getByTestId("krw-locked")).toHaveText("5002.5");
   await expect(page.getByTestId("open-order-count")).toHaveText("1");
 
   const cancelButton = page.locator('[data-testid^="cancel-order-"]');
   await expect(cancelButton).toHaveCount(1);
   await cancelButton.click();
 
-  await expect(page.getByText("Released 5000 KRW")).toBeVisible();
+  await expect(page.getByText("Released 5002.5 KRW")).toBeVisible();
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("krw-locked")).toHaveText("0");
   await expect(page.getByTestId("open-order-count")).toHaveText("0");
@@ -117,7 +130,7 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
   const buyer = await register(request, "buyer");
 
   await fundWallet(request, seller.token, "BTC", "1");
-  await fundWallet(request, buyer.token, "KRW", "5000");
+  await fundWallet(request, buyer.token, "KRW", "5002.5");
 
   const sellOrder = await createOrder(request, seller.token, {
     coin_symbol: "BTC",
@@ -139,7 +152,7 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
       const buyerWallets = await fetchWallets(request, buyer.token);
       return walletBalance(buyerWallets, "BTC")?.available_balance ?? "0";
     })
-    .toBe("0.9995");
+    .toBe("1");
 
   const buyerWallets = await fetchWallets(request, buyer.token);
   const sellerWallets = await fetchWallets(request, seller.token);
@@ -168,8 +181,8 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
     price: "5000",
     quantity: "1",
     fee_rate: "0.0005",
-    buyer_fee: "0.0005",
-    buyer_fee_asset: "BTC",
+    buyer_fee: "2.5",
+    buyer_fee_asset: "KRW",
     seller_fee: "2.5",
     seller_fee_asset: "KRW",
   });
@@ -179,8 +192,8 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
     price: "5000",
     quantity: "1",
     fee_rate: "0.0005",
-    buyer_fee: "0.0005",
-    buyer_fee_asset: "BTC",
+    buyer_fee: "2.5",
+    buyer_fee_asset: "KRW",
     seller_fee: "2.5",
     seller_fee_asset: "KRW",
   });
@@ -343,7 +356,7 @@ test("incoming buy skips the user's own best ask and matches another seller", as
   const otherSeller = await register(request, "self-skip-seller");
 
   await fundWallet(request, trader.token, coinSymbol, "1");
-  await fundWallet(request, trader.token, "KRW", "5100");
+  await fundWallet(request, trader.token, "KRW", "5102.55");
   await fundWallet(request, otherSeller.token, coinSymbol, "1");
 
   const ownSell = await createOrder(request, trader.token, {
@@ -377,7 +390,7 @@ test("incoming buy skips the user's own best ask and matches another seller", as
 
   expect(findOrder(traderOrders, ownSell.order_id)?.status).toBe("PENDING");
   expect(walletBalance(traderWallets, coinSymbol)).toMatchObject({
-    available_balance: "0.9995",
+    available_balance: "1",
     locked_balance: "1",
   });
   expect(walletBalance(traderWallets, "KRW")).toMatchObject({
@@ -397,7 +410,7 @@ test("partially filled buy order releases only remaining KRW when cancelled", as
   const buyer = await register(request, "partial-buyer");
   const seller = await register(request, "partial-seller");
 
-  await fundWallet(request, buyer.token, "KRW", "10000");
+  await fundWallet(request, buyer.token, "KRW", "10005");
   await fundWallet(request, seller.token, coinSymbol, "1");
 
   const buyOrder = await createOrder(request, buyer.token, {
@@ -422,17 +435,17 @@ test("partially filled buy order releases only remaining KRW when cancelled", as
   expect(cancelResult).toMatchObject({
     status: "CANCELLED",
     released_asset: "KRW",
-    released_amount: "5000",
+    released_amount: "5002.5",
   });
 
   const buyerWallets = await fetchWallets(request, buyer.token);
   const buyerOrders = await fetchOrders(request, buyer.token);
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
-    available_balance: "5000",
+    available_balance: "5002.5",
     locked_balance: "0",
   });
   expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
-    available_balance: "0.9995",
+    available_balance: "1",
     locked_balance: "0",
   });
   expect(findOrder(buyerOrders, buyOrder.order_id)).toMatchObject({
@@ -450,7 +463,7 @@ test("buyer receives KRW refund when a limit buy gets price improvement", async 
   const buyer = await register(request, "refund-buyer");
 
   await fundWallet(request, seller.token, coinSymbol, "1");
-  await fundWallet(request, buyer.token, "KRW", "5500");
+  await fundWallet(request, buyer.token, "KRW", "5502.75");
 
   const sellOrder = await createOrder(request, seller.token, {
     coin_symbol: coinSymbol,
@@ -473,11 +486,11 @@ test("buyer receives KRW refund when a limit buy gets price improvement", async 
   const buyerWallets = await fetchWallets(request, buyer.token);
   const sellerWallets = await fetchWallets(request, seller.token);
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
-    available_balance: "500",
+    available_balance: "500.25",
     locked_balance: "0",
   });
   expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
-    available_balance: "0.9995",
+    available_balance: "1",
     locked_balance: "0",
   });
   expect(walletBalance(sellerWallets, "KRW")).toMatchObject({
@@ -518,11 +531,11 @@ test("market buy spends KRW budget, settles fees, and releases unused KRW", asyn
   const buyerWallets = await fetchWallets(request, buyer.token);
   const buyerOrders = await fetchOrders(request, buyer.token);
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
-    available_balance: "5000",
+    available_balance: "4997.5",
     locked_balance: "0",
   });
   expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
-    available_balance: "0.9995",
+    available_balance: "1",
     locked_balance: "0",
   });
   expect(findOrder(buyerOrders, marketBuy.order_id)).toMatchObject({
@@ -540,7 +553,7 @@ test("market sell consumes the best bid and never rests on the order book", asyn
   const buyer = await register(request, "market-sell-buyer");
   const seller = await register(request, "market-sell-seller");
 
-  await fundWallet(request, buyer.token, "KRW", "5000");
+  await fundWallet(request, buyer.token, "KRW", "5002.5");
   await fundWallet(request, seller.token, coinSymbol, "1");
 
   const buyOrder = await createOrder(request, buyer.token, {
@@ -669,7 +682,7 @@ test("duplicate cancel does not release locked balance twice", async ({
   const coinSymbol = uniqueCoinSymbol("CANCEL");
   const buyer = await register(request, "double-cancel");
 
-  await fundWallet(request, buyer.token, "KRW", "5000");
+  await fundWallet(request, buyer.token, "KRW", "5002.5");
 
   const buyOrder = await createOrder(request, buyer.token, {
     coin_symbol: coinSymbol,
@@ -682,7 +695,7 @@ test("duplicate cancel does not release locked balance twice", async ({
   const firstCancel = await cancelOrder(request, buyer.token, buyOrder.order_id);
   expect(firstCancel).toMatchObject({
     status: "CANCELLED",
-    released_amount: "5000",
+    released_amount: "5002.5",
   });
 
   const duplicateCancel = await request.delete(
@@ -694,7 +707,7 @@ test("duplicate cancel does not release locked balance twice", async ({
   const buyerWallets = await fetchWallets(request, buyer.token);
   const buyerOrders = await fetchOrders(request, buyer.token);
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
-    available_balance: "5000",
+    available_balance: "5002.5",
     locked_balance: "0",
   });
   expect(findOrder(buyerOrders, buyOrder.order_id)?.status).toBe("CANCELLED");

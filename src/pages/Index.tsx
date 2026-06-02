@@ -368,7 +368,10 @@ const Index = () => {
           </div>
         </div>
 
-        <div className="w-[320px] min-w-[280px] flex-shrink-0 flex flex-col min-h-0">
+        <div
+          className="w-[320px] min-w-[280px] flex-shrink-0 overflow-y-auto border-l border-trading-border"
+          data-testid="account-sidebar"
+        >
           <AuthPanel
             token={authToken}
             user={authUser}
@@ -382,19 +385,17 @@ const Index = () => {
             onAuthExpired={handleAuthExpired}
             onRefresh={refreshAccount}
           />
-          <div className="flex-1 min-h-0">
-            <OrderForm
-              symbol={selectedSymbol}
-              currentPrice={currentPrice}
-              price={orderPrice}
-              onPriceChange={setOrderPrice}
-              authToken={authToken}
-              wallets={wallets}
-              marketRules={marketRules}
-              onAuthExpired={handleAuthExpired}
-              onOrderAccepted={refreshAccount}
-            />
-          </div>
+          <OrderForm
+            symbol={selectedSymbol}
+            currentPrice={currentPrice}
+            price={orderPrice}
+            onPriceChange={setOrderPrice}
+            authToken={authToken}
+            wallets={wallets}
+            marketRules={marketRules}
+            onAuthExpired={handleAuthExpired}
+            onOrderAccepted={refreshAccount}
+          />
         </div>
       </div>
     </div>

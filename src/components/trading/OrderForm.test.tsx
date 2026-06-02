@@ -130,6 +130,17 @@ describe("OrderForm market orders", () => {
     expect(createOrderMock).not.toHaveBeenCalled();
   });
 
+  it("includes the buyer KRW fee in the limit buy locked amount", () => {
+    render(<OrderForm {...baseProps} />);
+
+    fireEvent.change(screen.getByTestId("order-amount"), {
+      target: { value: "1" },
+    });
+
+    expect(screen.getByText("5,002.5 KRW")).toBeInTheDocument();
+    expect(screen.getByTestId("submit-order")).not.toBeDisabled();
+  });
+
   it("blocks order submission when the market is halted", () => {
     render(
       <OrderForm

@@ -67,6 +67,9 @@ const OrderForm = ({
   const currentTradingStatus = tradingStatus(marketRules);
   const feeRate = tradingFeeRate(marketRules);
   const feeRatePercent = Number.isFinite(feeRate) ? feeRate * 100 : 0;
+  const feeMultiplier = 1 + (Number.isFinite(feeRate) ? feeRate : 0);
+  const estimatedBuyFee =
+    side === "BUY" && isLimitOrder && Number.isFinite(total) ? total * feeRate : 0;
   const tickSize = krwTickSize(price, marketRules);
   const hasInvalidTick =
     isLimitOrder && price > 0 && !isKRWTickAligned(price, marketRules);
@@ -91,7 +94,8 @@ const OrderForm = ({
   );
   const availableBalance = Number(selectedWallet?.available_balance ?? 0);
   const lockedBalance = Number(selectedWallet?.locked_balance ?? 0);
-  const requiredBalance = side === "BUY" ? total : amountNumber;
+  const requiredBalance =
+    side === "BUY" ? (isMarketBuy ? total : total + estimatedBuyFee) : amountNumber;
   const balanceAsset = side === "BUY" ? "KRW" : symbol;
   const hasInsufficientBalance =
     !!authToken &&
@@ -120,7 +124,7 @@ const OrderForm = ({
       return;
     }
     if (side === "BUY" && price > 0) {
-      setAmount(((availableBalance * pct) / 100 / price).toFixed(8));
+      setAmount(((availableBalance * pct) / 100 / price / feeMultiplier).toFixed(8));
       return;
     }
     setAmount(((availableBalance * pct) / 100).toFixed(8));
@@ -204,7 +208,7 @@ const OrderForm = ({
   };
 
   return (
-    <div className="flex h-full flex-col border-l border-trading-border bg-card">
+    <div className="flex flex-col bg-card">
       <div className="flex border-b border-trading-border">
         <button
           onClick={() => setSide("BUY")}

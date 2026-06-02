@@ -85,10 +85,7 @@ const AuthPanel = ({
       }
       return b.id - a.id;
     });
-    const visibleWallets = wallets.filter(
-      (wallet) =>
-        wallet.available_balance !== "0" || wallet.locked_balance !== "0",
-    );
+    const accountWallets = accountBalanceRows(wallets, selectedSymbol);
 
     const handleDevFund = async (coinSymbol: string, amount: string) => {
       setIsFunding(true);
@@ -203,26 +200,58 @@ const AuthPanel = ({
             <div className="font-mono text-foreground">{openOrders.length}</div>
           </div>
           <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">Assets</div>
-            <div className="font-mono text-foreground">{wallets.length}</div>
+            <div className="text-muted-foreground">Active assets</div>
+            <div className="font-mono text-foreground" data-testid="asset-count">
+              {accountWallets.length}
+            </div>
           </div>
         </div>
 
-        {visibleWallets.length > 0 && (
-          <div className="mt-2 max-h-24 overflow-y-auto rounded border border-trading-border bg-muted px-2 py-1.5">
-            {visibleWallets.map((wallet) => (
+        <div className="mt-2 rounded border border-trading-border bg-muted">
+          <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
+            <span className="text-muted-foreground">Balances</span>
+            <span className="font-mono text-foreground">{accountWallets.length}</span>
+          </div>
+          <div className="max-h-32 overflow-y-auto px-2 py-1">
+            {accountWallets.length === 0 ? (
+              <div className="py-1 text-muted-foreground">No funded assets</div>
+            ) : (
+              accountWallets.map((wallet) => (
               <div
                 key={wallet.coin_symbol}
-                className="flex items-center justify-between gap-2 py-0.5 font-mono text-[11px]"
+                className="border-b border-trading-border/60 py-1.5 last:border-b-0"
+                data-testid={`balance-row-${wallet.coin_symbol}`}
               >
-                <span className="text-foreground">{wallet.coin_symbol}</span>
-                <span className="truncate text-muted-foreground">
-                  A {wallet.available_balance} / L {wallet.locked_balance}
-                </span>
+                <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
+                  <span className="font-medium text-foreground">
+                    {wallet.coin_symbol}
+                  </span>
+                  <span
+                    className="truncate text-foreground"
+                    data-testid={`balance-total-${wallet.coin_symbol}`}
+                  >
+                    {wallet.total_balance}
+                  </span>
+                </div>
+                <div className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[10px] text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    Avail{" "}
+                    <span data-testid={`balance-available-${wallet.coin_symbol}`}>
+                      {wallet.available_balance}
+                    </span>
+                  </span>
+                  <span className="min-w-0 truncate text-right">
+                    Locked{" "}
+                    <span data-testid={`balance-locked-${wallet.coin_symbol}`}>
+                      {wallet.locked_balance}
+                    </span>
+                  </span>
+                </div>
               </div>
-            ))}
+              ))
+            )}
           </div>
-        )}
+        </div>
 
         <div className="mt-2 rounded border border-trading-border bg-muted">
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
@@ -442,6 +471,46 @@ function formatTradeTime(value: string) {
     return value;
   }
   return tradedAt.toLocaleTimeString();
+}
+
+function accountBalanceRows(wallets: Wallet[], selectedSymbol: string) {
+  const selected = selectedSymbol.toUpperCase();
+  return wallets
+    .filter(hasVisibleBalance)
+    .sort((a, b) => {
+      const priorityDiff =
+        walletSortPriority(a, selected) - walletSortPriority(b, selected);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      return a.coin_symbol.localeCompare(b.coin_symbol);
+    });
+}
+
+function hasVisibleBalance(wallet: Wallet) {
+  return (
+    !isZeroDecimalString(wallet.available_balance) ||
+    !isZeroDecimalString(wallet.locked_balance) ||
+    !isZeroDecimalString(wallet.total_balance)
+  );
+}
+
+function walletSortPriority(wallet: Wallet, selectedSymbol: string) {
+  if (wallet.coin_symbol === "KRW") {
+    return 0;
+  }
+  if (wallet.coin_symbol === selectedSymbol) {
+    return 1;
+  }
+  if (!isZeroDecimalString(wallet.locked_balance)) {
+    return 2;
+  }
+  return 3;
+}
+
+function isZeroDecimalString(value: string) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue === 0;
 }
 
 function orderPrimaryText(order: Order) {
