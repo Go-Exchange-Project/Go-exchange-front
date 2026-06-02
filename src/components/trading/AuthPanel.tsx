@@ -247,6 +247,17 @@ const AuthPanel = ({
                     </span>
                   </span>
                 </div>
+                {wallet.coin_symbol !== "KRW" && (
+                  <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
+                    <span>Avg buy</span>
+                    <span
+                      className="min-w-0 truncate text-right"
+                      data-testid={`balance-avg-buy-${wallet.coin_symbol}`}
+                    >
+                      {wallet.avg_buy_price} KRW
+                    </span>
+                  </div>
+                )}
               </div>
               ))
             )}

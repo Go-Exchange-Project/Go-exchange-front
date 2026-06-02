@@ -38,6 +38,7 @@ describe("AuthPanel balances", () => {
             available_balance: "1",
             locked_balance: "0.25",
             total_balance: "1.25",
+            avg_buy_price: "90000",
           }),
           walletFixture({
             coin_symbol: "KRW",
@@ -58,6 +59,10 @@ describe("AuthPanel balances", () => {
     expect(screen.getByTestId("balance-available-BTC")).toHaveTextContent("1");
     expect(screen.getByTestId("balance-locked-BTC")).toHaveTextContent("0.25");
     expect(screen.getByTestId("balance-total-BTC")).toHaveTextContent("1.25");
+    expect(screen.getByTestId("balance-avg-buy-BTC")).toHaveTextContent(
+      "90000 KRW",
+    );
+    expect(screen.queryByTestId("balance-avg-buy-KRW")).not.toBeInTheDocument();
     expect(screen.queryByTestId("balance-row-ETH")).not.toBeInTheDocument();
   });
 });

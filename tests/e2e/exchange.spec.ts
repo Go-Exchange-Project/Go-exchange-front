@@ -23,6 +23,7 @@ interface Wallet {
   coin_symbol: string;
   available_balance: string;
   locked_balance: string;
+  avg_buy_price: string;
 }
 
 interface WalletsResponse {
@@ -164,6 +165,11 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
   expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
     available_balance: "0",
     locked_balance: "0",
+  });
+  expect(walletBalance(buyerWallets, "BTC")).toMatchObject({
+    available_balance: "1",
+    locked_balance: "0",
+    avg_buy_price: "5002.5",
   });
   expect(walletBalance(sellerWallets, "KRW")).toMatchObject({
     available_balance: "4997.5",
