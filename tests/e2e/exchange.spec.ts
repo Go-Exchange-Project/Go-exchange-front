@@ -72,6 +72,47 @@ test.beforeEach(async ({ request }) => {
   test.skip(!ready, `backend is not reachable at ${apiBaseURL}`);
 });
 
+test("UI keeps rendering when Upbit ticker fails and selected coin changes account context", async ({
+  page,
+}) => {
+  const upbitConsoleErrors: string[] = [];
+  await page.route(/https:\/\/api\.upbit\.com\/v1\/ticker\/all.*/, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "upbit unavailable in e2e" }),
+    }),
+  );
+  page.on("console", (message) => {
+    if (
+      message.type() === "error" &&
+      (message.text().includes("api.upbit.com") ||
+        message.text().includes("ticker/all"))
+    ) {
+      upbitConsoleErrors.push(message.text());
+    }
+  });
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Coin Switcher");
+  await page.getByTestId("auth-email").fill(uniqueEmail("coin-switch"));
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+
+  await expect(page.getByTestId("auth-status")).toHaveText("Authenticated");
+  await expect(page.getByText("BTC/KRW").first()).toBeVisible();
+  await expect(page.getByTestId("order-price")).toHaveValue("106,612,000");
+
+  await page.getByText("ETH/KRW").first().click();
+
+  await expect(page.getByText("ETH available")).toBeVisible();
+  await expect(page.getByTestId("selected-asset-available")).toHaveText("0");
+  await expect(page.getByText("Amount (ETH)")).toBeVisible();
+  await expect(page.getByTestId("submit-order")).toHaveText("Buy ETH");
+  expect(upbitConsoleErrors).toEqual([]);
+});
+
 test("user can register, fund KRW, place a buy order, and cancel it from the UI", async ({
   page,
 }) => {
@@ -202,6 +243,94 @@ test("seller and buyer orders match through HTTP APIs and settle both wallets", 
     buyer_fee_asset: "KRW",
     seller_fee: "2.5",
     seller_fee_asset: "KRW",
+  });
+});
+
+test("average buy price uses weighted buys and resets after a full sell", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("AVG");
+  const buyer = await register(request, "avg-buyer");
+  const lowSeller = await register(request, "avg-low-seller");
+  const highSeller = await register(request, "avg-high-seller");
+  const exitBuyer = await register(request, "avg-exit-buyer");
+
+  await fundWallet(request, lowSeller.token, coinSymbol, "1");
+  await fundWallet(request, highSeller.token, coinSymbol, "1");
+  await fundWallet(request, buyer.token, "KRW", "12006");
+  await fundWallet(request, exitBuyer.token, "KRW", "16008");
+
+  const lowSell = await createOrder(request, lowSeller.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+  const firstBuy = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+  await waitForOrderStatus(request, lowSeller.token, lowSell.order_id, "FILLED");
+  await waitForOrderStatus(request, buyer.token, firstBuy.order_id, "FILLED");
+
+  const highSell = await createOrder(request, highSeller.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "LIMIT",
+    price: "7000",
+    amount: "1",
+  });
+  const secondBuy = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "LIMIT",
+    price: "7000",
+    amount: "1",
+  });
+  await waitForOrderStatus(request, highSeller.token, highSell.order_id, "FILLED");
+  await waitForOrderStatus(request, buyer.token, secondBuy.order_id, "FILLED");
+
+  let buyerWallets = await fetchWallets(request, buyer.token);
+  expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
+    available_balance: "2",
+    locked_balance: "0",
+    avg_buy_price: "6003",
+  });
+  expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
+    available_balance: "0",
+    locked_balance: "0",
+  });
+
+  const exitSell = await createOrder(request, buyer.token, {
+    coin_symbol: coinSymbol,
+    side: "SELL",
+    order_type: "LIMIT",
+    price: "8000",
+    amount: "2",
+  });
+  const exitBuy = await createOrder(request, exitBuyer.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "LIMIT",
+    price: "8000",
+    amount: "2",
+  });
+  await waitForOrderStatus(request, buyer.token, exitSell.order_id, "FILLED");
+  await waitForOrderStatus(request, exitBuyer.token, exitBuy.order_id, "FILLED");
+
+  buyerWallets = await fetchWallets(request, buyer.token);
+  expect(walletBalance(buyerWallets, coinSymbol)).toMatchObject({
+    available_balance: "0",
+    locked_balance: "0",
+    avg_buy_price: "0",
+  });
+  expect(walletBalance(buyerWallets, "KRW")).toMatchObject({
+    available_balance: "15992",
+    locked_balance: "0",
   });
 });
 
@@ -342,6 +471,12 @@ test("protected APIs return structured auth errors and dev tools require a dev t
   expect(missingAuth.status()).toBe(401);
   await expectErrorCode(missingAuth, "AUTH_REQUIRED");
 
+  const invalidAuth = await request.get(`${apiBaseURL}/wallets`, {
+    headers: authHeaders("not-a-valid-jwt"),
+  });
+  expect(invalidAuth.status()).toBe(401);
+  await expectErrorCode(invalidAuth, "AUTH_INVALID_TOKEN");
+
   const user = await register(request, "dev-guard");
   const missingDevToken = await request.post(`${apiBaseURL}/dev/wallets/fund`, {
     headers: authHeaders(user.token),
@@ -352,6 +487,41 @@ test("protected APIs return structured auth errors and dev tools require a dev t
   });
   expect(missingDevToken.status()).toBe(403);
   await expectErrorCode(missingDevToken, "DEV_TOOLS_FORBIDDEN");
+});
+
+test("another user cannot cancel someone else's open order", async ({
+  request,
+}) => {
+  const coinSymbol = uniqueCoinSymbol("FORBID");
+  const owner = await register(request, "cancel-owner");
+  const attacker = await register(request, "cancel-attacker");
+
+  await fundWallet(request, owner.token, "KRW", "5002.5");
+  const order = await createOrder(request, owner.token, {
+    coin_symbol: coinSymbol,
+    side: "BUY",
+    order_type: "LIMIT",
+    price: "5000",
+    amount: "1",
+  });
+
+  const forbiddenCancel = await request.delete(
+    `${apiBaseURL}/orders/${order.order_id}`,
+    { headers: authHeaders(attacker.token) },
+  );
+
+  expect(forbiddenCancel.status()).toBe(403);
+  await expectErrorCode(forbiddenCancel, "FORBIDDEN");
+
+  const ownerWallets = await fetchWallets(request, owner.token);
+  const ownerOrders = await fetchOrders(request, owner.token);
+  expect(walletBalance(ownerWallets, "KRW")).toMatchObject({
+    available_balance: "0",
+    locked_balance: "5002.5",
+  });
+  expect(findOrder(ownerOrders, order.order_id)?.status).toBe("PENDING");
+
+  await cancelOrder(request, owner.token, order.order_id);
 });
 
 test("incoming buy skips the user's own best ask and matches another seller", async ({
