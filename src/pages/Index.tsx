@@ -24,17 +24,12 @@ import {
 } from "@/lib/api";
 import { MarketRules, fallbackKRWMarketRules } from "@/lib/orderPolicy";
 import { webSocketReconnectDelay } from "@/lib/reconnect";
+import { fetchKRWMarketTickers } from "@/lib/upbitTicker";
 
 const TOKEN_STORAGE_KEY = "goexchange.auth.token";
 const USER_STORAGE_KEY = "goexchange.auth.user";
 const WEBSOCKET_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080/ws";
-
-interface UpbitTicker {
-  market: string;
-  trade_price: number;
-  signed_change_rate: number;
-  acc_trade_price_24h: number;
-}
+const UPBIT_REST_POLL_INTERVAL_MS = 10_000;
 
 interface OrderBookLevel {
   price: string | number;
@@ -167,22 +162,18 @@ const Index = () => {
   }, [authToken, refreshAccount]);
 
   useEffect(() => {
-    const symbols = mockCoins.map((c) => `KRW-${c.symbol}`).join(",");
+    let stopped = false;
 
     const fetchPrices = async () => {
-      const res = await fetch(
-        `https://api.upbit.com/v1/ticker?markets=${symbols}`,
+      const tickers = await fetchKRWMarketTickers();
+      if (stopped || tickers.length === 0) return;
+      const tickersByMarket = new Map(
+        tickers.map((ticker) => [ticker.market, ticker]),
       );
-      const data = (await res.json()) as unknown;
-
-      if (!Array.isArray(data)) return;
-      const tickers = data.filter(isUpbitTicker);
 
       setCoins((prev) =>
         prev.map((coin) => {
-          const upbit = tickers.find(
-            (ticker) => ticker.market === `KRW-${coin.symbol}`,
-          );
+          const upbit = tickersByMarket.get(`KRW-${coin.symbol}`);
           if (!upbit) return coin;
           return {
             ...coin,
@@ -195,21 +186,23 @@ const Index = () => {
     };
 
     fetchPrices();
-    const interval = setInterval(fetchPrices, 3000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchPrices, UPBIT_REST_POLL_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
     selectedSymbolRef.current = selectedSymbol;
-    if (previousSymbolRef.current === selectedSymbol) {
-      return;
-    }
-    previousSymbolRef.current = selectedSymbol;
     setCurrentPrice(selectedCoin.price);
-    setOrderPrice(selectedCoin.price);
-    setAsks([]);
-    setBids([]);
-    setTrades([]);
+    if (previousSymbolRef.current !== selectedSymbol) {
+      previousSymbolRef.current = selectedSymbol;
+      setOrderPrice(selectedCoin.price);
+      setAsks([]);
+      setBids([]);
+      setTrades([]);
+    }
   }, [selectedCoin.price, selectedSymbol]);
 
   useEffect(() => {
@@ -433,19 +426,6 @@ function toTradeHistoryEntry(
     side: "buy",
     coinSymbol: trade.coin_symbol ?? trade.coinSymbol,
   };
-}
-
-function isUpbitTicker(value: unknown): value is UpbitTicker {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const ticker = value as Partial<UpbitTicker>;
-  return (
-    typeof ticker.market === "string" &&
-    typeof ticker.trade_price === "number" &&
-    typeof ticker.signed_change_rate === "number" &&
-    typeof ticker.acc_trade_price_24h === "number"
-  );
 }
 
 export default Index;
