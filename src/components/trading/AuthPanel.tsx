@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AuthResponse,
   AuthUser,
@@ -12,7 +12,15 @@ import {
   loginUser,
   registerUser,
 } from "@/lib/api";
-import { X } from "lucide-react";
+import {
+  History,
+  ListChecks,
+  LogOut,
+  Plus,
+  RefreshCw,
+  WalletCards,
+  X,
+} from "lucide-react";
 
 interface AuthPanelProps {
   token: string | null;
@@ -22,6 +30,7 @@ interface AuthPanelProps {
   trades: Trade[];
   error: string | null;
   selectedSymbol: string;
+  marketPrices: Record<string, number>;
   onAuth: (auth: AuthResponse) => void;
   onLogout: () => void;
   onAuthExpired: () => void;
@@ -36,6 +45,7 @@ const AuthPanel = ({
   trades,
   error,
   selectedSymbol,
+  marketPrices,
   onAuth,
   onLogout,
   onAuthExpired,
@@ -86,6 +96,7 @@ const AuthPanel = ({
       return b.id - a.id;
     });
     const accountWallets = accountBalanceRows(wallets, selectedSymbol);
+    const accountValuation = calculateAccountValuation(wallets, marketPrices);
 
     const handleDevFund = async (coinSymbol: string, amount: string) => {
       setIsFunding(true);
@@ -142,136 +153,179 @@ const AuthPanel = ({
           </div>
           <div className="flex gap-1">
             <button
+              type="button"
               onClick={onRefresh}
-              className="rounded border border-trading-border px-2 py-1 text-muted-foreground hover:text-foreground"
+              title="Refresh account"
+              aria-label="Refresh account"
+              className="flex h-8 w-8 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground"
             >
-              Refresh
+              <RefreshCw className="h-3.5 w-3.5" />
             </button>
             <button
+              type="button"
               onClick={onLogout}
-              className="rounded border border-trading-border px-2 py-1 text-muted-foreground hover:text-foreground"
+              title="Logout"
+              aria-label="Logout"
+              className="flex h-8 w-8 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground"
             >
-              Logout
+              <LogOut className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">KRW available</div>
-            <div
-              className="truncate font-mono text-foreground"
-              data-testid="krw-available"
-            >
-              {krwWallet?.available_balance ?? "0"}
-            </div>
+          <MetricTile
+            label="Asset value"
+            value={`${formatKRWAmount(accountValuation.totalValue)} KRW`}
+            testId="account-asset-value"
+          />
+          <MetricTile
+            label="Unrealized P/L"
+            value={
+              accountValuation.hasPnl
+                ? `${formatSignedKRWAmount(accountValuation.pnl)} (${formatSignedPercent(
+                    accountValuation.pnlRate,
+                  )})`
+                : "-"
+            }
+            valueClassName={profitLossTextClass(accountValuation.pnl)}
+            testId="account-unrealized-pnl"
+          />
+          <MetricTile
+            label="KRW available"
+            value={krwWallet?.available_balance ?? "0"}
+            detailLabel="Locked"
+            detailValue={krwWallet?.locked_balance ?? "0"}
+            testId="krw-available"
+            detailTestId="krw-locked"
+          />
+          <MetricTile
+            label={`${selectedSymbol} available`}
+            value={selectedWallet?.available_balance ?? "0"}
+            detailLabel="Locked"
+            detailValue={selectedWallet?.locked_balance ?? "0"}
+            testId="selected-asset-available"
+            detailTestId="selected-asset-locked"
+          />
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="flex items-center justify-between rounded border border-trading-border/70 px-2 py-1 text-muted-foreground">
+            <span>Open orders</span>
+            <span className="font-mono text-foreground">{openOrders.length}</span>
           </div>
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">KRW locked</div>
-            <div
-              className="truncate font-mono text-foreground"
-              data-testid="krw-locked"
-            >
-              {krwWallet?.locked_balance ?? "0"}
-            </div>
-          </div>
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">
-              {selectedSymbol} available
-            </div>
-            <div
-              className="truncate font-mono text-foreground"
-              data-testid="selected-asset-available"
-            >
-              {selectedWallet?.available_balance ?? "0"}
-            </div>
-          </div>
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">{selectedSymbol} locked</div>
-            <div
-              className="truncate font-mono text-foreground"
-              data-testid="selected-asset-locked"
-            >
-              {selectedWallet?.locked_balance ?? "0"}
-            </div>
-          </div>
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">Open orders</div>
-            <div className="font-mono text-foreground">{openOrders.length}</div>
-          </div>
-          <div className="rounded border border-trading-border bg-muted px-2 py-2">
-            <div className="text-muted-foreground">Active assets</div>
-            <div className="font-mono text-foreground" data-testid="asset-count">
+          <div className="flex items-center justify-between rounded border border-trading-border/70 px-2 py-1 text-muted-foreground">
+            <span>Active assets</span>
+            <span className="font-mono text-foreground" data-testid="asset-count">
               {accountWallets.length}
-            </div>
+            </span>
           </div>
         </div>
 
         <div className="mt-2 rounded border border-trading-border bg-muted">
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
-            <span className="text-muted-foreground">Balances</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <WalletCards className="h-3.5 w-3.5" />
+              Balances
+            </span>
             <span className="font-mono text-foreground">{accountWallets.length}</span>
           </div>
-          <div className="max-h-32 overflow-y-auto px-2 py-1">
+          <div className="max-h-40 overflow-y-auto px-2 py-1">
             {accountWallets.length === 0 ? (
               <div className="py-1 text-muted-foreground">No funded assets</div>
             ) : (
-              accountWallets.map((wallet) => (
-              <div
-                key={wallet.coin_symbol}
-                className="border-b border-trading-border/60 py-1.5 last:border-b-0"
-                data-testid={`balance-row-${wallet.coin_symbol}`}
-              >
-                <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
-                  <span className="font-medium text-foreground">
-                    {wallet.coin_symbol}
-                  </span>
-                  <span
-                    className="truncate text-foreground"
-                    data-testid={`balance-total-${wallet.coin_symbol}`}
+              accountWallets.map((wallet) => {
+                const valuation = calculateWalletValuation(wallet, marketPrices);
+                return (
+                  <div
+                    key={wallet.coin_symbol}
+                    className="border-b border-trading-border/60 py-1.5 last:border-b-0"
+                    data-testid={`balance-row-${wallet.coin_symbol}`}
                   >
-                    {wallet.total_balance}
-                  </span>
-                </div>
-                <div className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[10px] text-muted-foreground">
-                  <span className="min-w-0 truncate">
-                    Avail{" "}
-                    <span data-testid={`balance-available-${wallet.coin_symbol}`}>
-                      {wallet.available_balance}
-                    </span>
-                  </span>
-                  <span className="min-w-0 truncate text-right">
-                    Locked{" "}
-                    <span data-testid={`balance-locked-${wallet.coin_symbol}`}>
-                      {wallet.locked_balance}
-                    </span>
-                  </span>
-                </div>
-                {wallet.coin_symbol !== "KRW" && (
-                  <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
-                    <span>Avg buy</span>
-                    <span
-                      className="min-w-0 truncate text-right"
-                      data-testid={`balance-avg-buy-${wallet.coin_symbol}`}
-                    >
-                      {wallet.avg_buy_price} KRW
-                    </span>
+                    <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
+                      <span className="font-medium text-foreground">
+                        {wallet.coin_symbol}
+                      </span>
+                      <span
+                        className="truncate text-foreground"
+                        data-testid={`balance-total-${wallet.coin_symbol}`}
+                      >
+                        {wallet.total_balance}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[10px] text-muted-foreground">
+                      <span className="min-w-0 truncate">
+                        Avail{" "}
+                        <span data-testid={`balance-available-${wallet.coin_symbol}`}>
+                          {wallet.available_balance}
+                        </span>
+                      </span>
+                      <span className="min-w-0 truncate text-right">
+                        Locked{" "}
+                        <span data-testid={`balance-locked-${wallet.coin_symbol}`}>
+                          {wallet.locked_balance}
+                        </span>
+                      </span>
+                    </div>
+                    {wallet.coin_symbol !== "KRW" && (
+                      <>
+                        <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
+                          <span>Avg buy</span>
+                          <span
+                            className="min-w-0 truncate text-right"
+                            data-testid={`balance-avg-buy-${wallet.coin_symbol}`}
+                          >
+                            {wallet.avg_buy_price} KRW
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
+                          <span>Value</span>
+                          <span
+                            className="min-w-0 truncate text-right"
+                            data-testid={`balance-value-${wallet.coin_symbol}`}
+                          >
+                            {valuation
+                              ? `${formatKRWAmount(valuation.value)} KRW`
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px]">
+                          <span className="text-muted-foreground">P/L</span>
+                          <span
+                            className={`min-w-0 truncate text-right ${
+                              valuation
+                                ? profitLossTextClass(valuation.pnl)
+                                : "text-muted-foreground"
+                            }`}
+                            data-testid={`balance-pnl-${wallet.coin_symbol}`}
+                          >
+                            {valuation?.hasPnl
+                              ? `${formatSignedKRWAmount(
+                                  valuation.pnl,
+                                )} (${formatSignedPercent(valuation.pnlRate)})`
+                              : "-"}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
-                )}
-              </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
 
         <div className="mt-2 rounded border border-trading-border bg-muted">
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
-            <span className="text-muted-foreground">Open orders</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <ListChecks className="h-3.5 w-3.5" />
+              Open orders
+            </span>
             <span className="font-mono text-foreground" data-testid="open-order-count">
               {openOrders.length}
             </span>
           </div>
-          <div className="max-h-28 overflow-y-auto px-2 py-1">
+          <div className="max-h-36 overflow-y-auto px-2 py-1">
             {visibleOpenOrders.length === 0 ? (
               <div className="py-1 text-muted-foreground">No open orders</div>
             ) : (
@@ -317,7 +371,10 @@ const AuthPanel = ({
 
         <div className="mt-2 rounded border border-trading-border bg-muted">
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
-            <span className="text-muted-foreground">My trades</span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <History className="h-3.5 w-3.5" />
+              My trades
+            </span>
             <span
               className="font-mono text-foreground"
               data-testid="account-trade-count"
@@ -325,7 +382,7 @@ const AuthPanel = ({
               {trades.length}
             </span>
           </div>
-          <div className="max-h-28 overflow-y-auto px-2 py-1">
+          <div className="max-h-36 overflow-y-auto px-2 py-1">
             {trades.length === 0 ? (
               <div className="py-1 text-muted-foreground">No trades</div>
             ) : (
@@ -368,7 +425,12 @@ const AuthPanel = ({
         </div>
 
         {DEV_TOOLS_ENABLED && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 rounded border border-trading-border bg-muted p-2">
+            <div className="mb-2 flex items-center justify-between text-muted-foreground">
+              <span>Dev funds</span>
+              <Plus className="h-3.5 w-3.5" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => handleDevFund("KRW", "1000000")}
               disabled={isFunding}
@@ -385,6 +447,7 @@ const AuthPanel = ({
             >
               Fund {selectedSymbol} +1
             </button>
+            </div>
           </div>
         )}
 
@@ -462,6 +525,44 @@ const AuthPanel = ({
   );
 };
 
+interface MetricTileProps {
+  label: string;
+  value: ReactNode;
+  detailLabel?: string;
+  detailValue?: ReactNode;
+  valueClassName?: string;
+  testId?: string;
+  detailTestId?: string;
+}
+
+function MetricTile({
+  label,
+  value,
+  detailLabel,
+  detailValue,
+  valueClassName = "text-foreground",
+  testId,
+  detailTestId,
+}: MetricTileProps) {
+  return (
+    <div className="rounded border border-trading-border bg-muted px-2 py-2">
+      <div className="truncate text-muted-foreground">{label}</div>
+      <div
+        className={`truncate font-mono ${valueClassName}`}
+        data-testid={testId}
+      >
+        {value}
+      </div>
+      {detailLabel && detailValue !== undefined && (
+        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+          {detailLabel}{" "}
+          <span data-testid={detailTestId}>{detailValue}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function tradeFeeForSide(trade: Trade) {
   if (trade.side === "BUY") {
     return {
@@ -496,6 +597,124 @@ function accountBalanceRows(wallets: Wallet[], selectedSymbol: string) {
       }
       return a.coin_symbol.localeCompare(b.coin_symbol);
     });
+}
+
+interface WalletValuation {
+  value: number;
+  pnl: number;
+  pnlRate: number;
+  hasPnl: boolean;
+}
+
+interface AccountValuation {
+  totalValue: number;
+  pnl: number;
+  pnlRate: number;
+  hasPnl: boolean;
+}
+
+function calculateAccountValuation(
+  wallets: Wallet[],
+  marketPrices: Record<string, number>,
+): AccountValuation {
+  const valuation = wallets.reduce(
+    (acc, wallet) => {
+      if (!hasVisibleBalance(wallet)) {
+        return acc;
+      }
+
+      if (wallet.coin_symbol === "KRW") {
+        acc.totalValue += parseDecimalString(wallet.total_balance);
+        return acc;
+      }
+
+      const valuation = calculateWalletValuation(wallet, marketPrices);
+      if (!valuation) {
+        return acc;
+      }
+
+      acc.totalValue += valuation.value;
+      if (valuation.hasPnl) {
+        acc.pnl += valuation.pnl;
+        acc.costBasis += valuation.value - valuation.pnl;
+        acc.hasPnl = true;
+      }
+      return acc;
+    },
+    { totalValue: 0, pnl: 0, costBasis: 0, hasPnl: false },
+  );
+
+  return {
+    totalValue: valuation.totalValue,
+    pnl: valuation.pnl,
+    pnlRate:
+      valuation.hasPnl && valuation.costBasis > 0
+        ? (valuation.pnl / valuation.costBasis) * 100
+        : 0,
+    hasPnl: valuation.hasPnl,
+  };
+}
+
+function calculateWalletValuation(
+  wallet: Wallet,
+  marketPrices: Record<string, number>,
+): WalletValuation | null {
+  const totalBalance = parseDecimalString(wallet.total_balance);
+  const currentPrice = marketPrices[wallet.coin_symbol];
+  if (
+    wallet.coin_symbol === "KRW" ||
+    totalBalance <= 0 ||
+    !Number.isFinite(currentPrice) ||
+    currentPrice <= 0
+  ) {
+    return null;
+  }
+
+  const value = totalBalance * currentPrice;
+  const averageBuyPrice = parseDecimalString(wallet.avg_buy_price);
+  if (averageBuyPrice <= 0) {
+    return { value, pnl: 0, pnlRate: 0, hasPnl: false };
+  }
+
+  const costBasis = totalBalance * averageBuyPrice;
+  const pnl = value - costBasis;
+  return {
+    value,
+    pnl,
+    pnlRate: costBasis > 0 ? (pnl / costBasis) * 100 : 0,
+    hasPnl: true,
+  };
+}
+
+function parseDecimalString(value: string) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function formatKRWAmount(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatSignedKRWAmount(value: number) {
+  const absoluteValue = formatKRWAmount(Math.abs(value));
+  if (value > 0) return `+${absoluteValue} KRW`;
+  if (value < 0) return `-${absoluteValue} KRW`;
+  return "0 KRW";
+}
+
+function formatSignedPercent(value: number) {
+  const absoluteValue = Math.abs(value).toFixed(2);
+  if (value > 0) return `+${absoluteValue}%`;
+  if (value < 0) return `-${absoluteValue}%`;
+  return "0.00%";
+}
+
+function profitLossTextClass(value: number) {
+  if (value > 0) return "text-trading-buy";
+  if (value < 0) return "text-trading-sell";
+  return "text-foreground";
 }
 
 function hasVisibleBalance(wallet: Wallet) {

@@ -79,6 +79,9 @@ const Index = () => {
   const [coins, setCoins] = useState(mockCoins);
   const selectedCoin =
     coins.find((c) => c.symbol === selectedSymbol) || coins[0];
+  const marketPrices = Object.fromEntries(
+    coins.map((coin) => [coin.symbol, coin.price]),
+  );
   const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
   const [authToken, setAuthToken] = useState<string | null>(() =>
     localStorage.getItem(TOKEN_STORAGE_KEY),
@@ -380,6 +383,7 @@ const Index = () => {
             trades={accountTrades}
             error={accountError}
             selectedSymbol={selectedSymbol}
+            marketPrices={marketPrices}
             onAuth={handleAuth}
             onLogout={handleLogout}
             onAuthExpired={handleAuthExpired}

@@ -15,6 +15,7 @@ const baseProps = {
   trades: [],
   error: null,
   selectedSymbol: "BTC",
+  marketPrices: {},
   onAuth: vi.fn(),
   onLogout: vi.fn(),
   onAuthExpired: vi.fn(),
@@ -47,6 +48,7 @@ describe("AuthPanel balances", () => {
             total_balance: "1005000",
           }),
         ]}
+        marketPrices={{ BTC: 100000 }}
       />,
     );
 
@@ -62,8 +64,46 @@ describe("AuthPanel balances", () => {
     expect(screen.getByTestId("balance-avg-buy-BTC")).toHaveTextContent(
       "90000 KRW",
     );
+    expect(screen.getByTestId("balance-value-BTC")).toHaveTextContent(
+      "125,000 KRW",
+    );
+    expect(screen.getByTestId("balance-pnl-BTC")).toHaveTextContent(
+      "+12,500 KRW (+11.11%)",
+    );
+    expect(screen.getByTestId("account-asset-value")).toHaveTextContent(
+      "1,130,000 KRW",
+    );
+    expect(screen.getByTestId("account-unrealized-pnl")).toHaveTextContent(
+      "+12,500 KRW (+11.11%)",
+    );
     expect(screen.queryByTestId("balance-avg-buy-KRW")).not.toBeInTheDocument();
     expect(screen.queryByTestId("balance-row-ETH")).not.toBeInTheDocument();
+  });
+
+  it("shows asset valuation without profit and loss when average buy price is unknown", () => {
+    render(
+      <AuthPanel
+        {...baseProps}
+        wallets={[
+          walletFixture({
+            coin_symbol: "BTC",
+            available_balance: "1",
+            total_balance: "1",
+            avg_buy_price: "0",
+          }),
+        ]}
+        marketPrices={{ BTC: 100000 }}
+      />,
+    );
+
+    expect(screen.getByTestId("balance-value-BTC")).toHaveTextContent(
+      "100,000 KRW",
+    );
+    expect(screen.getByTestId("balance-pnl-BTC")).toHaveTextContent("-");
+    expect(screen.getByTestId("account-asset-value")).toHaveTextContent(
+      "100,000 KRW",
+    );
+    expect(screen.getByTestId("account-unrealized-pnl")).toHaveTextContent("-");
   });
 });
 
