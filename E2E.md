@@ -29,10 +29,10 @@ Install Playwright browsers once if you want to use the default bundled Chromium
 npx playwright install chromium
 ```
 
-If local Google Chrome is already installed, you can avoid that download:
+If Microsoft Edge or Google Chrome is already installed, you can avoid that download:
 
 ```powershell
-$env:E2E_BROWSER_CHANNEL="chrome"
+$env:E2E_BROWSER_CHANNEL="msedge"
 ```
 
 ## Run
@@ -47,7 +47,7 @@ Override endpoints when needed:
 ```powershell
 $env:E2E_API_BASE_URL="http://127.0.0.1:8080"
 $env:E2E_FRONTEND_BASE_URL="http://127.0.0.1:3000"
-$env:E2E_BROWSER_CHANNEL="chrome"
+$env:E2E_BROWSER_CHANNEL="msedge"
 $env:E2E_DEV_TOOLS_TOKEN="e2e-dev-token"
 npm run test:e2e
 ```
@@ -56,8 +56,23 @@ The app uses `VITE_WS_URL` for the WebSocket stream. If it is not set, it defaul
 
 ## Coverage
 
-- Browser flow: register, fund KRW, place a buy order, cancel it, and verify available/locked balances.
-- API flow: seller funds BTC, buyer funds KRW, matching creates a trade, and both wallets/orders settle.
-- Error contract: invalid order input returns `422`; insufficient balance returns `409`.
+Current coverage includes:
+
+- UI remains usable when the Upbit ticker request fails, and selected coin changes account/order context.
+- Browser flow: register, fund KRW/BTC, place a buy order, cancel it, and verify available/locked balances.
+- API settlement flow: seller funds coin, buyer funds KRW, matching creates a trade, and both wallets/orders settle.
+- Weighted average buy price after multiple buys and reset after full sell.
+- Order validation status codes for invalid decimal, tick size, minimum notional, quantity step, halted market, and insufficient balance.
+- Market rules API for BTC/XRP/HALT.
+- Structured auth errors and dev-tool token guard.
+- Cross-user cancel protection.
+- Self-trade prevention where the user's own order is skipped but another user's order can still match.
+- Partial fill cancellation releases only remaining locked KRW.
+- Price improvement refund for a limit buy.
+- Market buy budget spending, KRW fee settlement, and unused KRW release.
+- Market sell consumes best bid and never rests on the order book.
+- Market buy with no liquidity cancels and releases the full budget.
+- Market buy with only the user's own ask skips self-trade and releases budget.
+- Duplicate cancel does not release locked balance twice.
 
 If the backend is not reachable, tests are skipped with a message. If dev tools are disabled or the dev tools token does not match, wallet-funding tests are skipped or fail with a clear setup error.
