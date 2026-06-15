@@ -135,10 +135,10 @@ describe("AuthPanel trade history", () => {
 
     expect(screen.getByTestId("account-trade-count")).toHaveTextContent("2");
     expect(screen.getByTestId("account-trade-fee-1")).toHaveTextContent(
-      "Fee 2.5 KRW",
+      "수수료 2.5 KRW",
     );
     expect(screen.getByTestId("account-trade-fee-2")).toHaveTextContent(
-      "Fee 2.5 KRW",
+      "수수료 2.5 KRW",
     );
   });
 });

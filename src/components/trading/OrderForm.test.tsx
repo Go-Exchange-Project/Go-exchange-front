@@ -65,6 +65,13 @@ describe("OrderForm market orders", () => {
     render(<OrderForm {...baseProps} />);
 
     fireEvent.click(screen.getByTestId("order-type-market"));
+    expect(screen.getAllByText("시장가 매수 예산 (KRW)")).toHaveLength(1);
+    expect(screen.queryByTestId("order-total")).not.toBeInTheDocument();
+    expect(screen.getByTestId("market-order-note")).toHaveTextContent(
+      "시장가 매수는 이 KRW 예산으로 가장 낮은 매도 호가부터 즉시 체결합니다.",
+    );
+    expect(screen.getByTestId("submit-order")).toHaveTextContent("시장가 매수 BTC");
+
     fireEvent.change(screen.getByTestId("order-amount"), {
       target: { value: "10000" },
     });
@@ -87,6 +94,13 @@ describe("OrderForm market orders", () => {
 
     fireEvent.click(screen.getByTestId("order-side-sell"));
     fireEvent.click(screen.getByTestId("order-type-market"));
+    expect(screen.getByText("시장가 매도 수량 (BTC)")).toBeInTheDocument();
+    expect(screen.queryByTestId("order-total")).not.toBeInTheDocument();
+    expect(screen.getByTestId("market-order-note")).toHaveTextContent(
+      "오더북에 남지 않습니다",
+    );
+    expect(screen.getByTestId("submit-order")).toHaveTextContent("시장가 매도 BTC");
+
     fireEvent.change(screen.getByTestId("order-amount"), {
       target: { value: "0.5" },
     });
@@ -104,6 +118,49 @@ describe("OrderForm market orders", () => {
     });
   });
 
+  it("refreshes account data again after a market order can complete asynchronously", async () => {
+    const onOrderAccepted = vi.fn();
+    render(<OrderForm {...baseProps} onOrderAccepted={onOrderAccepted} />);
+
+    fireEvent.click(screen.getByTestId("order-type-market"));
+    fireEvent.change(screen.getByTestId("order-amount"), {
+      target: { value: "10000" },
+    });
+    fireEvent.click(screen.getByTestId("submit-order"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("order-message")).toHaveTextContent(
+        "시장가 주문 접수 #1",
+      );
+      expect(onOrderAccepted).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(
+      () => {
+        expect(onOrderAccepted).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 1000 },
+    );
+  });
+
+  it("does not silently ignore percentage clicks before balances are loaded", () => {
+    const onOrderAccepted = vi.fn();
+    render(
+      <OrderForm
+        {...baseProps}
+        wallets={[]}
+        onOrderAccepted={onOrderAccepted}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("100%"));
+
+    expect(screen.getByTestId("order-error")).toHaveTextContent(
+      "KRW 주문 가능 잔고가 아직 없거나 최신 상태가 아닙니다.",
+    );
+    expect(onOrderAccepted).toHaveBeenCalledTimes(1);
+    expect(createOrderMock).not.toHaveBeenCalled();
+  });
+
   it("blocks base quantity amounts below the market minimum", () => {
     render(<OrderForm {...baseProps} />);
 
@@ -111,7 +168,7 @@ describe("OrderForm market orders", () => {
       target: { value: "0.000000001" },
     });
     expect(
-      screen.getByText("Amount must be at least 0.00000001 BTC."),
+      screen.getByText("수량은 최소 0.00000001 BTC 이상이어야 합니다."),
     ).toBeInTheDocument();
     expect(screen.getByTestId("submit-order")).toBeDisabled();
     expect(createOrderMock).not.toHaveBeenCalled();
@@ -124,7 +181,7 @@ describe("OrderForm market orders", () => {
       target: { value: "1.000000015" },
     });
     expect(
-      screen.getByText("Amount must align with the 0.00000001 BTC step."),
+      screen.getByText("수량은 0.00000001 BTC 단위에 맞아야 합니다."),
     ).toBeInTheDocument();
     expect(screen.getByTestId("submit-order")).toBeDisabled();
     expect(createOrderMock).not.toHaveBeenCalled();
@@ -154,10 +211,10 @@ describe("OrderForm market orders", () => {
     );
 
     expect(screen.getByTestId("market-status-warning")).toHaveTextContent(
-      "BTC trading is currently halted.",
+      "BTC 거래가 현재 중지되었습니다.",
     );
     expect(screen.getByTestId("submit-order")).toHaveTextContent(
-      "BTC trading halted",
+      "BTC 거래 중지",
     );
     expect(screen.getByTestId("submit-order")).toBeDisabled();
     expect(createOrderMock).not.toHaveBeenCalled();

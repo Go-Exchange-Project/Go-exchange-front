@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Wallet, createOrder, isUnauthorizedError } from "@/lib/api";
 import {
   MarketRules,
@@ -48,11 +48,13 @@ const OrderForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const marketRefreshTimerRef = useRef<number | null>(null);
 
   const normalizedAmount = normalizeDecimalInput(amount);
   const amountNumber = Number(normalizedAmount);
   const isMarketOrder = orderType === "market";
   const isMarketBuy = isMarketOrder && side === "BUY";
+  const isMarketSell = isMarketOrder && side === "SELL";
   const isLimitOrder = orderType === "limit";
   const usesBaseQuantity = !isMarketBuy;
   const total = isMarketBuy
@@ -102,6 +104,26 @@ const OrderForm = ({
     amountNumber > 0 &&
     Number.isFinite(requiredBalance) &&
     requiredBalance > availableBalance;
+  const amountLabel = isMarketBuy
+    ? "시장가 매수 예산 (KRW)"
+    : isMarketSell
+      ? `시장가 매도 수량 (${symbol})`
+      : `수량 (${symbol})`;
+  const shouldShowTotalField = isLimitOrder;
+  const shouldShowMinimumNotional = isLimitOrder || isMarketBuy;
+  const marketOrderNote = isMarketBuy
+    ? "시장가 매수는 이 KRW 예산으로 가장 낮은 매도 호가부터 즉시 체결합니다. 남은 KRW는 자동으로 반환됩니다."
+    : isMarketSell
+      ? `시장가 매도는 입력한 ${symbol} 수량을 가장 높은 매수 호가부터 즉시 체결합니다. 미체결 ${symbol}은 자동 반환되며 오더북에 남지 않습니다.`
+      : "";
+
+  useEffect(() => {
+    return () => {
+      if (marketRefreshTimerRef.current !== null) {
+        window.clearTimeout(marketRefreshTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!userEditedPrice) {
@@ -117,7 +139,19 @@ const OrderForm = ({
   }, [marketRules, price, userEditedPrice]);
 
   const handlePercentage = (pct: number) => {
-    if (!Number.isFinite(availableBalance) || availableBalance <= 0) return;
+    setSubmitMessage(null);
+    if (!authToken) {
+      setSubmitError("비율 버튼을 사용하려면 로그인이 필요합니다.");
+      return;
+    }
+    if (!Number.isFinite(availableBalance) || availableBalance <= 0) {
+      setSubmitError(
+        `${balanceAsset} 주문 가능 잔고가 아직 없거나 최신 상태가 아닙니다. 계정 정보를 다시 불러온 뒤 한 번 더 눌러 주세요.`,
+      );
+      onOrderAccepted();
+      return;
+    }
+    setSubmitError(null);
 
     if (isMarketBuy) {
       setAmount(((availableBalance * pct) / 100).toFixed(0));
@@ -143,43 +177,43 @@ const OrderForm = ({
     setSubmitError(null);
 
     if (!authToken) {
-      setSubmitError("Login is required before placing orders.");
+      setSubmitError("주문하려면 로그인이 필요합니다.");
       return;
     }
     if (!isTradingEnabled) {
-      setSubmitError(`${symbol} trading is currently ${currentTradingStatus.toLowerCase()}.`);
+      setSubmitError(`${symbol} 거래가 현재 중지되었습니다.`);
       return;
     }
     if (!normalizedAmount || Number(normalizedAmount) <= 0) {
       setSubmitError(
-        isMarketBuy ? "Enter a valid KRW order amount." : "Enter a valid amount.",
+        isMarketBuy ? "올바른 KRW 주문 예산을 입력해 주세요." : "올바른 수량을 입력해 주세요.",
       );
       return;
     }
     if (isLimitOrder && (!normalizedPrice || Number(normalizedPrice) <= 0)) {
-      setSubmitError("Enter a valid price.");
+      setSubmitError("올바른 가격을 입력해 주세요.");
       return;
     }
     if (isLimitOrder && !isKRWTickAligned(Number(normalizedPrice), marketRules)) {
-      setSubmitError(`Price must align with the ${formatKRWPrice(tickSize, marketRules)} KRW tick.`);
+      setSubmitError(`가격은 ${formatKRWPrice(tickSize, marketRules)} KRW 단위에 맞아야 합니다.`);
       return;
     }
     if (usesBaseQuantity && !isBaseQuantityAtLeastMinimum(normalizedAmount, marketRules)) {
-      setSubmitError(`Amount must be at least ${formatBalance(minimumOrderQuantity)} ${symbol}.`);
+      setSubmitError(`수량은 최소 ${formatBalance(minimumOrderQuantity)} ${symbol} 이상이어야 합니다.`);
       return;
     }
     if (usesBaseQuantity && !isBaseQuantityStepAligned(normalizedAmount, marketRules)) {
-      setSubmitError(`Amount must align with the ${quantityStep} ${symbol} step.`);
+      setSubmitError(`수량은 ${quantityStep} ${symbol} 단위에 맞아야 합니다.`);
       return;
     }
     if ((isLimitOrder || isMarketBuy) && total < minimumOrderNotional) {
       setSubmitError(
-        `Total must be at least ${minimumOrderNotional.toLocaleString()} KRW.`,
+        `주문 금액은 최소 ${minimumOrderNotional.toLocaleString()} KRW 이상이어야 합니다.`,
       );
       return;
     }
     if (hasInsufficientBalance) {
-      setSubmitError(`Insufficient ${balanceAsset} available balance.`);
+      setSubmitError(`주문 가능한 ${balanceAsset} 잔고가 부족합니다.`);
       return;
     }
 
@@ -193,9 +227,24 @@ const OrderForm = ({
         amount: isMarketBuy ? "0" : normalizedAmount,
         quote_amount: isMarketBuy ? normalizedAmount : "0",
       });
-      setSubmitMessage(`Order accepted #${result.order_id}`);
+      setSubmitMessage(
+        isMarketOrder
+          ? `시장가 주문 접수 #${result.order_id}. 미체결 ${
+              isMarketBuy ? "KRW" : symbol
+            }는 자동으로 반환됩니다.`
+          : `주문 접수 #${result.order_id}`,
+      );
       setAmount("");
       onOrderAccepted();
+      if (isMarketOrder) {
+        if (marketRefreshTimerRef.current !== null) {
+          window.clearTimeout(marketRefreshTimerRef.current);
+        }
+        marketRefreshTimerRef.current = window.setTimeout(() => {
+          onOrderAccepted();
+          marketRefreshTimerRef.current = null;
+        }, 500);
+      }
     } catch (err) {
       if (isUnauthorizedError(err)) {
         onAuthExpired();
@@ -219,7 +268,7 @@ const OrderForm = ({
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          Buy
+          매수
         </button>
         <button
           onClick={() => setSide("SELL")}
@@ -230,13 +279,13 @@ const OrderForm = ({
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          Sell
+          매도
         </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-center gap-1 text-xs">
-          <span className="mr-2 text-muted-foreground">Order type</span>
+          <span className="mr-2 text-muted-foreground">주문 유형</span>
           {(["limit", "market"] as const).map((value) => (
             <button
               key={value}
@@ -248,20 +297,20 @@ const OrderForm = ({
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {value === "limit" ? "Limit" : "Market"}
+              {value === "limit" ? "지정가" : "시장가"}
             </button>
           ))}
         </div>
 
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Available</span>
+          <span className="text-muted-foreground">주문 가능</span>
           <span className="font-mono text-foreground">
             {formatBalance(availableBalance)} {balanceAsset}
           </span>
         </div>
 
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Locked</span>
+          <span className="text-muted-foreground">잠금</span>
           <span className="font-mono text-muted-foreground">
             {formatBalance(lockedBalance)} {balanceAsset}
           </span>
@@ -272,14 +321,14 @@ const OrderForm = ({
             className="rounded border border-destructive/40 bg-destructive/10 px-2 py-2 text-[11px] text-destructive"
             data-testid="market-status-warning"
           >
-            {symbol} trading is currently {currentTradingStatus.toLowerCase()}.
+            {symbol} 거래가 현재 중지되었습니다.
           </div>
         )}
 
         {orderType === "limit" && (
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">
-              Price (KRW)
+              가격 (KRW)
             </label>
             <div className="flex items-center rounded border border-trading-border bg-muted">
               <button
@@ -326,7 +375,7 @@ const OrderForm = ({
 
         <div>
           <label className="mb-1 block text-[11px] text-muted-foreground">
-            {isMarketBuy ? "Order amount (KRW)" : `Amount (${symbol})`}
+            {amountLabel}
           </label>
           <input
             type="text"
@@ -351,40 +400,52 @@ const OrderForm = ({
           ))}
         </div>
 
-        <div>
-          <label className="mb-1 block text-[11px] text-muted-foreground">
-            {isMarketBuy ? "Market buy budget (KRW)" : "Total (KRW)"}
-          </label>
-          <input
-            type="text"
-            value={total > 0 ? total.toLocaleString() : ""}
-            readOnly
-            placeholder="0"
-            data-testid="order-total"
-            className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none"
-          />
-        </div>
+        {shouldShowTotalField && (
+          <div>
+            <label className="mb-1 block text-[11px] text-muted-foreground">
+              총 주문 금액 (KRW)
+            </label>
+            <input
+              type="text"
+              value={total > 0 ? total.toLocaleString() : ""}
+              readOnly
+              placeholder="0"
+              data-testid="order-total"
+              className="w-full rounded border border-trading-border bg-muted px-3 py-1.5 font-mono text-sm text-foreground outline-none"
+            />
+          </div>
+        )}
 
-        <div className="flex justify-between text-[11px] text-muted-foreground">
-          <span>Min total</span>
-          <span className="font-mono">{minimumOrderNotional.toLocaleString()} KRW</span>
-        </div>
+        {isMarketOrder && (
+          <div
+            className="rounded border border-trading-border bg-muted px-2 py-2 text-[11px] text-muted-foreground"
+            data-testid="market-order-note"
+          >
+            {marketOrderNote}
+          </div>
+        )}
+        {shouldShowMinimumNotional && (
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>{isMarketBuy ? "최소 예산" : "최소 주문 금액"}</span>
+            <span className="font-mono">{minimumOrderNotional.toLocaleString()} KRW</span>
+          </div>
+        )}
         {isLimitOrder && (
           <div className="flex justify-between text-[11px] text-muted-foreground">
-            <span>Tick size</span>
+            <span>호가 단위</span>
             <span className="font-mono">{formatKRWPrice(tickSize, marketRules)} KRW</span>
           </div>
         )}
         {usesBaseQuantity && (
           <>
             <div className="flex justify-between text-[11px] text-muted-foreground">
-              <span>Min amount</span>
+              <span>최소 수량</span>
               <span className="font-mono">
                 {formatBalance(minimumOrderQuantity)} {symbol}
               </span>
             </div>
             <div className="flex justify-between text-[11px] text-muted-foreground">
-              <span>Amount step</span>
+              <span>수량 단위</span>
               <span className="font-mono">
                 {quantityStep} {symbol}
               </span>
@@ -392,7 +453,7 @@ const OrderForm = ({
           </>
         )}
         <div className="flex justify-between text-[11px] text-muted-foreground">
-          <span>Fee rate</span>
+          <span>수수료율</span>
           <span className="font-mono">{feeRatePercent.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%</span>
         </div>
 
@@ -400,7 +461,7 @@ const OrderForm = ({
           <div className="rounded border border-trading-border bg-muted px-2 py-2 text-[11px]">
             <div className="flex justify-between">
               <span className="text-muted-foreground">
-                {side === "BUY" ? "KRW to lock" : `${symbol} to lock`}
+                {side === "BUY" ? "잠글 KRW" : `잠글 ${symbol}`}
               </span>
               <span
                 className={`font-mono ${
@@ -412,27 +473,27 @@ const OrderForm = ({
             </div>
             {hasInsufficientBalance && (
               <div className="mt-1 text-destructive">
-                Available balance is not enough for this order.
+                주문 가능한 잔고가 부족합니다.
               </div>
             )}
             {isBelowMinimumOrder && (
               <div className="mt-1 text-destructive">
-                Total must be at least {minimumOrderNotional.toLocaleString()} KRW.
+                주문 금액은 최소 {minimumOrderNotional.toLocaleString()} KRW 이상이어야 합니다.
               </div>
             )}
             {isBelowMinimumQuantity && (
               <div className="mt-1 text-destructive">
-                Amount must be at least {formatBalance(minimumOrderQuantity)} {symbol}.
+                수량은 최소 {formatBalance(minimumOrderQuantity)} {symbol} 이상이어야 합니다.
               </div>
             )}
             {hasInvalidQuantityStep && (
               <div className="mt-1 text-destructive">
-                Amount must align with the {quantityStep} {symbol} step.
+                수량은 {quantityStep} {symbol} 단위에 맞아야 합니다.
               </div>
             )}
             {hasInvalidTick && (
               <div className="mt-1 text-destructive">
-                Price must align with the {formatKRWPrice(tickSize, marketRules)} KRW tick.
+                가격은 {formatKRWPrice(tickSize, marketRules)} KRW 단위에 맞아야 합니다.
               </div>
             )}
           </div>
@@ -471,12 +532,12 @@ const OrderForm = ({
           }`}
         >
           {isSubmitting
-            ? "Submitting..."
+            ? "제출 중..."
             : !authToken
-              ? "Login required"
+              ? "로그인 필요"
               : !isTradingEnabled
-                ? `${symbol} trading halted`
-              : `${side === "BUY" ? "Buy" : "Sell"} ${symbol}`}
+                ? `${symbol} 거래 중지`
+                : `${isMarketOrder ? "시장가 " : ""}${side === "BUY" ? "매수" : "매도"} ${symbol}`}
         </button>
       </div>
     </div>

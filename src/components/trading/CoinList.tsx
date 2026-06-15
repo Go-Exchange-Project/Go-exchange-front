@@ -18,10 +18,7 @@ const formatVolume = (vol: number): string => {
   return vol.toLocaleString();
 };
 
-const tabs = ["원화", "BTC", "USDT", "보유", "관심"];
-
 const CoinList = ({ coins, selectedSymbol, onSelect }: CoinListProps) => {
-  const [activeTab, setActiveTab] = useState("원화");
   const [search, setSearch] = useState("");
 
   const filtered = coins.filter(
@@ -33,23 +30,6 @@ const CoinList = ({ coins, selectedSymbol, onSelect }: CoinListProps) => {
 
   return (
     <div className="flex flex-col h-full bg-card border-r border-trading-border">
-      {/* Tabs */}
-      <div className="flex border-b border-trading-border">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${
-              activeTab === tab
-                ? "text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
       {/* Search */}
       <div className="p-2">
         <input

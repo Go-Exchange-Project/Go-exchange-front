@@ -100,7 +100,7 @@ test("UI keeps rendering when Upbit ticker fails and selected coin changes accou
   await page.getByTestId("auth-password").fill(password);
   await page.getByTestId("auth-submit").click();
 
-  await expect(page.getByTestId("auth-status")).toHaveText("Authenticated");
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
   await expect(page.getByText("BTC/KRW").first()).toBeVisible();
   await expect(page.getByTestId("order-price")).toHaveValue("106,612,000");
 
@@ -108,8 +108,8 @@ test("UI keeps rendering when Upbit ticker fails and selected coin changes accou
 
   await expect(page.getByText("ETH available")).toBeVisible();
   await expect(page.getByTestId("selected-asset-available")).toHaveText("0");
-  await expect(page.getByText("Amount (ETH)")).toBeVisible();
-  await expect(page.getByTestId("submit-order")).toHaveText("Buy ETH");
+  await expect(page.getByText("수량 (ETH)")).toBeVisible();
+  await expect(page.getByTestId("submit-order")).toHaveText("매수 ETH");
   expect(upbitConsoleErrors).toEqual([]);
 });
 
@@ -125,15 +125,15 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await page.getByTestId("auth-password").fill(password);
   await page.getByTestId("auth-submit").click();
 
-  await expect(page.getByTestId("auth-status")).toHaveText("Authenticated");
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
 
   await page.getByTestId("fund-krw").click();
-  await expect(page.getByText("KRW available 1000000")).toBeVisible();
+  await expect(page.getByText("KRW 주문 가능 1000000")).toBeVisible();
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("balance-total-KRW")).toHaveText("1000000");
 
   await page.getByTestId("fund-selected-asset").click();
-  await expect(page.getByText("BTC available 1")).toBeVisible();
+  await expect(page.getByText("BTC 주문 가능 1")).toBeVisible();
   await expect(page.getByTestId("selected-asset-available")).toHaveText("1");
   await expect(page.getByTestId("balance-total-BTC")).toHaveText("1");
   await expect
@@ -149,7 +149,7 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await page.getByTestId("submit-order").click();
 
   await expect(page.getByTestId("order-message")).toContainText(
-    "Order accepted",
+    "주문 접수",
   );
   await expect(page.getByTestId("krw-available")).toHaveText("994997.5");
   await expect(page.getByTestId("krw-locked")).toHaveText("5002.5");
@@ -159,7 +159,7 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await expect(cancelButton).toHaveCount(1);
   await cancelButton.click();
 
-  await expect(page.getByText("Released 5002.5 KRW")).toBeVisible();
+  await expect(page.getByText("5002.5 KRW 반환 완료")).toBeVisible();
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("krw-locked")).toHaveText("0");
   await expect(page.getByTestId("open-order-count")).toHaveText("0");

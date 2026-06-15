@@ -72,7 +72,7 @@ const AuthPanel = ({
       onAuth(auth);
       setPassword("");
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Auth failed");
+      setAuthError(err instanceof Error ? err.message : "인증에 실패했습니다.");
     } finally {
       setIsSubmitting(false);
     }
@@ -105,7 +105,7 @@ const AuthPanel = ({
       try {
         const result = await fundWallet(token, { coin_symbol: coinSymbol, amount });
         setAccountMessage(
-          `${result.wallet.coin_symbol} available ${result.wallet.available_balance}`,
+          `${result.wallet.coin_symbol} 주문 가능 ${result.wallet.available_balance}`,
         );
         onRefresh();
       } catch (err) {
@@ -113,7 +113,7 @@ const AuthPanel = ({
           onAuthExpired();
           return;
         }
-        setAuthError(err instanceof Error ? err.message : "Funding failed");
+        setAuthError(err instanceof Error ? err.message : "충전에 실패했습니다.");
       } finally {
         setIsFunding(false);
       }
@@ -126,7 +126,7 @@ const AuthPanel = ({
       try {
         const result = await cancelOrder(token, orderID);
         setAccountMessage(
-          `Released ${result.released_amount} ${result.released_asset}`,
+          `${result.released_amount} ${result.released_asset} 반환 완료`,
         );
         onRefresh();
       } catch (err) {
@@ -134,7 +134,7 @@ const AuthPanel = ({
           onAuthExpired();
           return;
         }
-        setAuthError(err instanceof Error ? err.message : "Cancel failed");
+        setAuthError(err instanceof Error ? err.message : "주문 취소에 실패했습니다.");
       } finally {
         setCancelingOrderID(null);
       }
@@ -148,15 +148,15 @@ const AuthPanel = ({
               {user.email}
             </div>
             <div className="text-muted-foreground" data-testid="auth-status">
-              Authenticated
+              로그인됨
             </div>
           </div>
           <div className="flex gap-1">
             <button
               type="button"
               onClick={onRefresh}
-              title="Refresh account"
-              aria-label="Refresh account"
+              title="계정 새로고침"
+              aria-label="계정 새로고침"
               className="flex h-8 w-8 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -164,8 +164,8 @@ const AuthPanel = ({
             <button
               type="button"
               onClick={onLogout}
-              title="Logout"
-              aria-label="Logout"
+              title="로그아웃"
+              aria-label="로그아웃"
               className="flex h-8 w-8 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground"
             >
               <LogOut className="h-3.5 w-3.5" />
@@ -175,12 +175,12 @@ const AuthPanel = ({
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <MetricTile
-            label="Asset value"
+            label="보유자산 평가액"
             value={`${formatKRWAmount(accountValuation.totalValue)} KRW`}
             testId="account-asset-value"
           />
           <MetricTile
-            label="Unrealized P/L"
+            label="평가손익"
             value={
               accountValuation.hasPnl
                 ? `${formatSignedKRWAmount(accountValuation.pnl)} (${formatSignedPercent(
@@ -192,17 +192,17 @@ const AuthPanel = ({
             testId="account-unrealized-pnl"
           />
           <MetricTile
-            label="KRW available"
+            label="KRW 주문 가능"
             value={krwWallet?.available_balance ?? "0"}
-            detailLabel="Locked"
+            detailLabel="잠금"
             detailValue={krwWallet?.locked_balance ?? "0"}
             testId="krw-available"
             detailTestId="krw-locked"
           />
           <MetricTile
-            label={`${selectedSymbol} available`}
+            label={`${selectedSymbol} 주문 가능`}
             value={selectedWallet?.available_balance ?? "0"}
-            detailLabel="Locked"
+            detailLabel="잠금"
             detailValue={selectedWallet?.locked_balance ?? "0"}
             testId="selected-asset-available"
             detailTestId="selected-asset-locked"
@@ -211,11 +211,11 @@ const AuthPanel = ({
 
         <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
           <div className="flex items-center justify-between rounded border border-trading-border/70 px-2 py-1 text-muted-foreground">
-            <span>Open orders</span>
+            <span>미체결 주문</span>
             <span className="font-mono text-foreground">{openOrders.length}</span>
           </div>
           <div className="flex items-center justify-between rounded border border-trading-border/70 px-2 py-1 text-muted-foreground">
-            <span>Active assets</span>
+            <span>보유 자산</span>
             <span className="font-mono text-foreground" data-testid="asset-count">
               {accountWallets.length}
             </span>
@@ -226,13 +226,13 @@ const AuthPanel = ({
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <WalletCards className="h-3.5 w-3.5" />
-              Balances
+              보유 자산
             </span>
             <span className="font-mono text-foreground">{accountWallets.length}</span>
           </div>
           <div className="max-h-40 overflow-y-auto px-2 py-1">
             {accountWallets.length === 0 ? (
-              <div className="py-1 text-muted-foreground">No funded assets</div>
+              <div className="py-1 text-muted-foreground">보유 자산 없음</div>
             ) : (
               accountWallets.map((wallet) => {
                 const valuation = calculateWalletValuation(wallet, marketPrices);
@@ -255,13 +255,13 @@ const AuthPanel = ({
                     </div>
                     <div className="mt-0.5 grid grid-cols-2 gap-2 font-mono text-[10px] text-muted-foreground">
                       <span className="min-w-0 truncate">
-                        Avail{" "}
+                        가능{" "}
                         <span data-testid={`balance-available-${wallet.coin_symbol}`}>
                           {wallet.available_balance}
                         </span>
                       </span>
                       <span className="min-w-0 truncate text-right">
-                        Locked{" "}
+                        잠금{" "}
                         <span data-testid={`balance-locked-${wallet.coin_symbol}`}>
                           {wallet.locked_balance}
                         </span>
@@ -270,7 +270,7 @@ const AuthPanel = ({
                     {wallet.coin_symbol !== "KRW" && (
                       <>
                         <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
-                          <span>Avg buy</span>
+                          <span>평균매수가</span>
                           <span
                             className="min-w-0 truncate text-right"
                             data-testid={`balance-avg-buy-${wallet.coin_symbol}`}
@@ -279,7 +279,7 @@ const AuthPanel = ({
                           </span>
                         </div>
                         <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px] text-muted-foreground">
-                          <span>Value</span>
+                          <span>평가액</span>
                           <span
                             className="min-w-0 truncate text-right"
                             data-testid={`balance-value-${wallet.coin_symbol}`}
@@ -290,7 +290,7 @@ const AuthPanel = ({
                           </span>
                         </div>
                         <div className="mt-0.5 flex justify-between gap-2 font-mono text-[10px]">
-                          <span className="text-muted-foreground">P/L</span>
+                          <span className="text-muted-foreground">손익</span>
                           <span
                             className={`min-w-0 truncate text-right ${
                               valuation
@@ -319,7 +319,7 @@ const AuthPanel = ({
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <ListChecks className="h-3.5 w-3.5" />
-              Open orders
+              미체결 주문
             </span>
             <span className="font-mono text-foreground" data-testid="open-order-count">
               {openOrders.length}
@@ -327,7 +327,7 @@ const AuthPanel = ({
           </div>
           <div className="max-h-36 overflow-y-auto px-2 py-1">
             {visibleOpenOrders.length === 0 ? (
-              <div className="py-1 text-muted-foreground">No open orders</div>
+              <div className="py-1 text-muted-foreground">미체결 주문 없음</div>
             ) : (
               visibleOpenOrders.slice(0, 6).map((order) => (
                 <div
@@ -342,7 +342,7 @@ const AuthPanel = ({
                         : "text-trading-sell"
                     }`}
                   >
-                    {order.side}
+                    {orderSideLabel(order.side)}
                   </span>
                   <div className="min-w-0 font-mono text-[11px]">
                     <div className="truncate text-foreground">
@@ -355,8 +355,8 @@ const AuthPanel = ({
                   <button
                     type="button"
                     data-testid={`cancel-order-${order.id}`}
-                    title={`Cancel order #${order.id}`}
-                    aria-label={`Cancel order #${order.id}`}
+                    title={`주문 #${order.id} 취소`}
+                    aria-label={`주문 #${order.id} 취소`}
                     onClick={() => handleCancelOrder(order.id)}
                     disabled={cancelingOrderID === order.id}
                     className="flex h-6 w-6 items-center justify-center rounded border border-trading-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
@@ -373,7 +373,7 @@ const AuthPanel = ({
           <div className="flex items-center justify-between border-b border-trading-border px-2 py-1.5">
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <History className="h-3.5 w-3.5" />
-              My trades
+              내 체결
             </span>
             <span
               className="font-mono text-foreground"
@@ -384,7 +384,7 @@ const AuthPanel = ({
           </div>
           <div className="max-h-36 overflow-y-auto px-2 py-1">
             {trades.length === 0 ? (
-              <div className="py-1 text-muted-foreground">No trades</div>
+              <div className="py-1 text-muted-foreground">체결 내역 없음</div>
             ) : (
               trades.slice(0, 6).map((trade) => {
                 const fee = tradeFeeForSide(trade);
@@ -401,7 +401,7 @@ const AuthPanel = ({
                           : "text-trading-sell"
                       }`}
                     >
-                      {trade.side}
+                      {orderSideLabel(trade.side)}
                     </span>
                     <div className="min-w-0 font-mono text-[11px]">
                       <div className="truncate text-foreground">
@@ -411,7 +411,7 @@ const AuthPanel = ({
                         className="truncate text-muted-foreground"
                         data-testid={`account-trade-fee-${trade.id}`}
                       >
-                        Fee {fee.amount} {fee.asset}
+                        수수료 {fee.amount} {fee.asset}
                       </div>
                       <div className="truncate text-muted-foreground">
                         {formatTradeTime(trade.traded_at)}
@@ -427,7 +427,7 @@ const AuthPanel = ({
         {DEV_TOOLS_ENABLED && (
           <div className="mt-2 rounded border border-trading-border bg-muted p-2">
             <div className="mb-2 flex items-center justify-between text-muted-foreground">
-              <span>Dev funds</span>
+              <span>개발용 충전</span>
               <Plus className="h-3.5 w-3.5" />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -437,7 +437,7 @@ const AuthPanel = ({
               data-testid="fund-krw"
               className="rounded border border-trading-border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
-              Fund KRW +1,000,000
+              KRW 1,000,000 충전
             </button>
             <button
               onClick={() => handleDevFund(selectedSymbol, "1")}
@@ -445,7 +445,7 @@ const AuthPanel = ({
               data-testid="fund-selected-asset"
               className="rounded border border-trading-border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
-              Fund {selectedSymbol} +1
+              {selectedSymbol} 1 충전
             </button>
             </div>
           </div>
@@ -478,7 +478,7 @@ const AuthPanel = ({
                 : "border-trading-border text-muted-foreground"
             }`}
           >
-            {item === "login" ? "Login" : "Register"}
+            {item === "login" ? "로그인" : "회원가입"}
           </button>
         ))}
       </div>
@@ -487,7 +487,7 @@ const AuthPanel = ({
         <input
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="Name"
+        placeholder="이름"
         data-testid="auth-name"
         className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
       />
@@ -495,7 +495,7 @@ const AuthPanel = ({
       <input
       value={email}
       onChange={(event) => setEmail(event.target.value)}
-      placeholder="Email"
+      placeholder="이메일"
       data-testid="auth-email"
       className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
     />
@@ -503,7 +503,7 @@ const AuthPanel = ({
         value={password}
         onChange={(event) => setPassword(event.target.value)}
       type="password"
-      placeholder="Password"
+      placeholder="비밀번호"
       data-testid="auth-password"
       className="mt-2 w-full rounded border border-trading-border bg-muted px-2 py-1 text-foreground outline-none"
     />
@@ -519,7 +519,7 @@ const AuthPanel = ({
         data-testid="auth-submit"
         className="mt-2 w-full rounded bg-primary px-2 py-2 font-medium text-primary-foreground disabled:opacity-40"
       >
-        {isSubmitting ? "Submitting..." : mode === "login" ? "Login" : "Create account"}
+        {isSubmitting ? "처리 중..." : mode === "login" ? "로그인" : "회원가입"}
       </button>
     </div>
   );
@@ -575,6 +575,10 @@ function tradeFeeForSide(trade: Trade) {
     amount: trade.seller_fee,
     asset: trade.seller_fee_asset,
   };
+}
+
+function orderSideLabel(side: "BUY" | "SELL") {
+  return side === "BUY" ? "매수" : "매도";
 }
 
 function formatTradeTime(value: string) {
@@ -745,16 +749,16 @@ function isZeroDecimalString(value: string) {
 
 function orderPrimaryText(order: Order) {
   if (order.order_type === "MARKET" && order.side === "BUY") {
-    return `${order.coin_symbol} budget ${order.quote_amount} KRW`;
+    return `${order.coin_symbol} 예산 ${order.quote_amount} KRW`;
   }
   return `${order.coin_symbol} ${order.remaining}`;
 }
 
 function orderSecondaryText(order: Order) {
   if (order.order_type === "MARKET") {
-    return "Market";
+    return "시장가";
   }
-  return `@ ${order.price}`;
+  return `${order.price} KRW`;
 }
 
 export default AuthPanel;
