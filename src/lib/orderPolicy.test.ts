@@ -19,15 +19,23 @@ import {
 
 describe("KRW order policy", () => {
   it("uses price-band tick sizes", () => {
+    expect(krwTickSize(0.000009)).toBe(0.00000001);
+    expect(krwTickSize(0.00009)).toBe(0.0000001);
+    expect(krwTickSize(0.0009)).toBe(0.000001);
     expect(krwTickSize(0.00922)).toBe(0.00001);
+    expect(krwTickSize(0.09)).toBe(0.0001);
+    expect(krwTickSize(0.9)).toBe(0.001);
     expect(krwTickSize(9.99)).toBe(0.01);
     expect(krwTickSize(10)).toBe(0.1);
     expect(krwTickSize(100)).toBe(1);
-    expect(krwTickSize(1000)).toBe(5);
+    expect(krwTickSize(1000)).toBe(1);
+    expect(krwTickSize(4999)).toBe(1);
+    expect(krwTickSize(5000)).toBe(5);
     expect(krwTickSize(10000)).toBe(10);
-    expect(krwTickSize(100000)).toBe(50);
-    expect(krwTickSize(500000)).toBe(100);
-    expect(krwTickSize(1000000)).toBe(500);
+    expect(krwTickSize(50000)).toBe(50);
+    expect(krwTickSize(100000)).toBe(100);
+    expect(krwTickSize(500000)).toBe(500);
+    expect(krwTickSize(1000000)).toBe(1000);
     expect(krwTickSize(2000000)).toBe(1000);
   });
 

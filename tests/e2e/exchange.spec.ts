@@ -440,7 +440,10 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
     base_quantity_step: "0.00000001",
     fee_rate: "0.0005",
     tick_rules: expect.arrayContaining([
+      { upper_bound: "0.00001", tick_size: "0.00000001" },
+      { upper_bound: "5000", tick_size: "1" },
       { upper_bound: "10000", tick_size: "5" },
+      { upper_bound: "2000000", tick_size: "1000" },
       { upper_bound: null, tick_size: "1000" },
     ]),
   });
