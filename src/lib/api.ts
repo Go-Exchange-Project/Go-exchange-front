@@ -60,6 +60,17 @@ export interface Trade {
   sell_order_id: number;
 }
 
+export interface OrderBookLevel {
+  price: string | number;
+  quantity: string | number;
+}
+
+export interface OrderBookSnapshot {
+  coin_symbol: string;
+  asks: OrderBookLevel[];
+  bids: OrderBookLevel[];
+}
+
 export interface CancelOrderResponse {
   message: string;
   order_id: number;
@@ -170,6 +181,13 @@ export async function fetchTrades(
 export async function fetchMarketRules(coinSymbol: string): Promise<MarketRules> {
   const params = new URLSearchParams({ coin_symbol: coinSymbol });
   return apiRequest<MarketRules>(`/markets/rules?${params.toString()}`);
+}
+
+export async function fetchOrderBookSnapshot(
+  coinSymbol: string,
+): Promise<OrderBookSnapshot> {
+  const params = new URLSearchParams({ coin_symbol: coinSymbol });
+  return apiRequest<OrderBookSnapshot>(`/orderbook?${params.toString()}`);
 }
 
 export async function fundWallet(

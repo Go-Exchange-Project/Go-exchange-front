@@ -16,6 +16,7 @@ import {
   Order,
   Trade,
   Wallet,
+  fetchOrderBookSnapshot,
   fetchMarketRules,
   fetchOrders,
   fetchTrades,
@@ -66,6 +67,7 @@ const Index = () => {
   const selectedSymbolRef = useRef(selectedSymbol);
   const authTokenRef = useRef<string | null>(null);
   const refreshAccountRef = useRef<() => void>(() => {});
+  const refreshOrderBookSnapshotRef = useRef<() => void>(() => {});
 
   const [asks, setAsks] = useState<OrderBookEntry[]>([]);
   const [bids, setBids] = useState<OrderBookEntry[]>([]);
@@ -156,10 +158,39 @@ const Index = () => {
     setAccountError(null);
   }, [clearAuthState]);
 
+  const applyOrderBookSnapshot = useCallback(
+    (snapshot: { asks?: OrderBookLevel[]; bids?: OrderBookLevel[] }) => {
+      setAsks(toOrderBookEntries(snapshot.asks));
+      setBids(toOrderBookEntries(snapshot.bids));
+    },
+    [],
+  );
+
+  const refreshOrderBookSnapshot = useCallback(
+    async (coinSymbol: string) => {
+      try {
+        const snapshot = await fetchOrderBookSnapshot(coinSymbol);
+        if (
+          snapshot.coin_symbol &&
+          snapshot.coin_symbol !== selectedSymbolRef.current
+        ) {
+          return;
+        }
+        applyOrderBookSnapshot(snapshot);
+      } catch {
+        // WebSocket updates can still hydrate the orderbook if the snapshot API is temporarily unavailable.
+      }
+    },
+    [applyOrderBookSnapshot],
+  );
+
   useEffect(() => {
     authTokenRef.current = authToken;
     refreshAccountRef.current = refreshAccount;
-  }, [authToken, refreshAccount]);
+    refreshOrderBookSnapshotRef.current = () => {
+      void refreshOrderBookSnapshot(selectedSymbolRef.current);
+    };
+  }, [authToken, refreshAccount, refreshOrderBookSnapshot]);
 
   useEffect(() => {
     let stopped = false;
@@ -204,6 +235,10 @@ const Index = () => {
       setTrades([]);
     }
   }, [selectedCoin.price, selectedSymbol]);
+
+  useEffect(() => {
+    void refreshOrderBookSnapshot(selectedSymbol);
+  }, [refreshOrderBookSnapshot, selectedSymbol]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,18 +298,7 @@ const Index = () => {
         if (snapshotSymbol && snapshotSymbol !== selectedSymbolRef.current) {
           return;
         }
-        setAsks(
-          (data.data?.asks || []).map((ask) => ({
-            price: Number(ask.price),
-            amount: Number(ask.quantity),
-          })),
-        );
-        setBids(
-          (data.data?.bids || []).map((bid) => ({
-            price: Number(bid.price),
-            amount: Number(bid.quantity),
-          })),
-        );
+        applyOrderBookSnapshot(data.data ?? {});
       } else if (data.type === "trade") {
         const trade = toTradeHistoryEntry(data.data);
         if (!trade) return;
@@ -295,6 +319,7 @@ const Index = () => {
         wsRef.current = ws;
         ws.onopen = () => {
           reconnectAttempt = 0;
+          refreshOrderBookSnapshotRef.current();
           if (authTokenRef.current) {
             refreshAccountRef.current();
           }
@@ -322,7 +347,7 @@ const Index = () => {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, []);
+  }, [applyOrderBookSnapshot]);
 
   const handlePriceClick = useCallback((price: number) => {
     setOrderPrice(price);
@@ -405,6 +430,13 @@ function parseWebSocketMessage(value: string): WebSocketMessage | null {
   } catch {
     return null;
   }
+}
+
+function toOrderBookEntries(levels: OrderBookLevel[] | undefined) {
+  return (levels || []).map((level) => ({
+    price: Number(level.price),
+    amount: Number(level.quantity),
+  }));
 }
 
 function toTradeHistoryEntry(

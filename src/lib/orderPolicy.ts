@@ -15,7 +15,7 @@ export interface MarketRules {
   tick_rules: MarketTickRule[];
 }
 
-export const MIN_KRW_ORDER_NOTIONAL = 5000;
+export const MIN_KRW_ORDER_NOTIONAL = 0;
 export const DEFAULT_TRADING_FEE_RATE = 0.0005;
 export const DEFAULT_MIN_ORDER_QUANTITY = "0.00000001";
 export const DEFAULT_BASE_QUANTITY_STEP = "0.00000001";

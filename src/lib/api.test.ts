@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   fetchMarketRules,
+  fetchOrderBookSnapshot,
   fetchTrades,
   fetchWallets,
   isUnauthorizedError,
@@ -76,7 +77,7 @@ describe("apiRequest error handling", () => {
             quote_symbol: "KRW",
             trading_enabled: true,
             trading_status: "ACTIVE",
-            min_order_notional: "5000",
+            min_order_notional: "0",
             min_order_quantity: "0.00000001",
             base_quantity_step: "0.00000001",
             fee_rate: "0.0005",
@@ -95,10 +96,42 @@ describe("apiRequest error handling", () => {
       coin_symbol: "BTC",
       trading_enabled: true,
       trading_status: "ACTIVE",
-      min_order_notional: "5000",
+      min_order_notional: "0",
       min_order_quantity: "0.00000001",
       base_quantity_step: "0.00000001",
       fee_rate: "0.0005",
+    });
+  });
+
+  it("fetches the current public orderbook snapshot for a coin symbol", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toContain("/orderbook?coin_symbol=AVAX");
+      return new Response(
+        JSON.stringify({
+          data: {
+            coin_symbol: "AVAX",
+            asks: [
+              { price: "10200", quantity: "1" },
+              { price: "10300", quantity: "1" },
+            ],
+            bids: [],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchOrderBookSnapshot("AVAX")).resolves.toMatchObject({
+      coin_symbol: "AVAX",
+      asks: [
+        { price: "10200", quantity: "1" },
+        { price: "10300", quantity: "1" },
+      ],
+      bids: [],
     });
   });
 

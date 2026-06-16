@@ -361,18 +361,6 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   });
   expect(invalidTick.status()).toBe(422);
 
-  const belowMinimum = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
-    data: {
-      coin_symbol: "BTC",
-      side: "BUY",
-      order_type: "LIMIT",
-      price: "100",
-      amount: "1",
-    },
-  });
-  expect(belowMinimum.status()).toBe(422);
-
   const invalidQuantityStep = await request.post(`${apiBaseURL}/orders`, {
     headers: authHeaders(user.token),
     data: {
@@ -424,7 +412,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(insufficientBalance.status()).toBe(409);
 });
 
-test("market rules API exposes KRW minimum notional and tick sizes", async ({
+test("market rules API exposes disabled KRW notional minimum and tick sizes", async ({
   request,
 }) => {
   const response = await request.get(`${apiBaseURL}/markets/rules?coin_symbol=btc`);
@@ -435,7 +423,7 @@ test("market rules API exposes KRW minimum notional and tick sizes", async ({
     quote_symbol: "KRW",
     trading_enabled: true,
     trading_status: "ACTIVE",
-    min_order_notional: "5000",
+    min_order_notional: "0",
     min_order_quantity: "0.00000001",
     base_quantity_step: "0.00000001",
     fee_rate: "0.0005",

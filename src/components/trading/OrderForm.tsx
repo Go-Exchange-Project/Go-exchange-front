@@ -63,6 +63,7 @@ const OrderForm = ({
       : 0
     : price * (Number.isFinite(amountNumber) ? amountNumber : 0);
   const minimumOrderNotional = minOrderNotional(marketRules);
+  const hasMinimumOrderNotional = minimumOrderNotional > 0;
   const minimumOrderQuantity = minOrderQuantity(marketRules);
   const quantityStep = baseQuantityStep(marketRules);
   const isTradingEnabled = tradingEnabled(marketRules);
@@ -76,6 +77,7 @@ const OrderForm = ({
   const hasInvalidTick =
     isLimitOrder && price > 0 && !isKRWTickAligned(price, marketRules);
   const isBelowMinimumOrder =
+    hasMinimumOrderNotional &&
     (isLimitOrder || isMarketBuy) &&
     amountNumber > 0 &&
     Number.isFinite(total) &&
@@ -110,7 +112,8 @@ const OrderForm = ({
       ? `시장가 매도 수량 (${symbol})`
       : `수량 (${symbol})`;
   const shouldShowTotalField = isLimitOrder;
-  const shouldShowMinimumNotional = isLimitOrder || isMarketBuy;
+  const shouldShowMinimumNotional =
+    hasMinimumOrderNotional && (isLimitOrder || isMarketBuy);
   const marketOrderNote = isMarketBuy
     ? "시장가 매수는 이 KRW 예산으로 가장 낮은 매도 호가부터 즉시 체결합니다. 남은 KRW는 자동으로 반환됩니다."
     : isMarketSell
@@ -206,7 +209,7 @@ const OrderForm = ({
       setSubmitError(`수량은 ${quantityStep} ${symbol} 단위에 맞아야 합니다.`);
       return;
     }
-    if ((isLimitOrder || isMarketBuy) && total < minimumOrderNotional) {
+    if (hasMinimumOrderNotional && (isLimitOrder || isMarketBuy) && total < minimumOrderNotional) {
       setSubmitError(
         `주문 금액은 최소 ${minimumOrderNotional.toLocaleString()} KRW 이상이어야 합니다.`,
       );

@@ -56,8 +56,8 @@ describe("KRW order policy", () => {
     expect(formatKRWPrice(0.00922)).toBe("0.00922");
   });
 
-  it("defines the minimum KRW order notional", () => {
-    expect(MIN_KRW_ORDER_NOTIONAL).toBe(5000);
+  it("does not enforce a default KRW order notional minimum", () => {
+    expect(MIN_KRW_ORDER_NOTIONAL).toBe(0);
   });
 
   it("can calculate from API-provided market rules", () => {
@@ -97,7 +97,7 @@ describe("KRW order policy", () => {
       quote_symbol: "KRW",
       trading_enabled: true,
       trading_status: "ACTIVE",
-      min_order_notional: "5000",
+      min_order_notional: "0",
       min_order_quantity: "0.0000001",
       base_quantity_step: "0.0000001",
       fee_rate: "0.0005",

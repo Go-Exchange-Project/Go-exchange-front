@@ -198,6 +198,53 @@ describe("OrderForm market orders", () => {
     expect(screen.getByTestId("submit-order")).not.toBeDisabled();
   });
 
+  it("allows low-priced limit orders when KRW notional minimum is disabled", async () => {
+    render(
+      <OrderForm
+        {...baseProps}
+        symbol="XRP"
+        currentPrice={1848}
+        price={1848}
+        wallets={[
+          {
+            id: 1,
+            coin_symbol: "KRW",
+            available_balance: "2000",
+            locked_balance: "0",
+            total_balance: "2000",
+            avg_buy_price: "0",
+          },
+        ]}
+        marketRules={{
+          ...marketRules,
+          coin_symbol: "XRP",
+          min_order_notional: "0",
+          min_order_quantity: "1",
+          base_quantity_step: "1",
+          tick_rules: [{ upper_bound: null, tick_size: "1" }],
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("order-amount"), {
+      target: { value: "1" },
+    });
+
+    expect(screen.getByTestId("submit-order")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("submit-order"));
+
+    await waitFor(() => {
+      expect(createOrderMock).toHaveBeenCalledWith("token", {
+        coin_symbol: "XRP",
+        side: "BUY",
+        order_type: "LIMIT",
+        price: "1848",
+        amount: "1",
+        quote_amount: "0",
+      });
+    });
+  });
+
   it("blocks order submission when the market is halted", () => {
     render(
       <OrderForm
