@@ -57,6 +57,7 @@ type WebSocketMessage =
       };
     }
   | { type: "trade"; data?: TradeMessageData }
+  | { type: "trades"; data?: TradeMessageData[] }
   | { type?: string };
 
 const Index = () => {
@@ -284,6 +285,18 @@ const Index = () => {
       reconnectTimer = setTimeout(connect, delay);
     };
 
+    const processTrade = (tradeData: TradeMessageData | undefined) => {
+      const trade = toTradeHistoryEntry(tradeData);
+      if (!trade) return;
+      if (trade.coinSymbol && trade.coinSymbol !== selectedSymbolRef.current) {
+        return;
+      }
+      setTrades((prev) => [trade, ...prev].slice(0, 50));
+      if (authTokenRef.current) {
+        refreshAccountRef.current();
+      }
+    };
+
     const handleMessage = (event: MessageEvent<string>) => {
       const data = parseWebSocketMessage(event.data);
       if (!data) return;
@@ -300,14 +313,10 @@ const Index = () => {
         }
         applyOrderBookSnapshot(data.data ?? {});
       } else if (data.type === "trade") {
-        const trade = toTradeHistoryEntry(data.data);
-        if (!trade) return;
-        if (trade.coinSymbol && trade.coinSymbol !== selectedSymbolRef.current) {
-          return;
-        }
-        setTrades((prev) => [trade, ...prev].slice(0, 50));
-        if (authTokenRef.current) {
-          refreshAccountRef.current();
+        processTrade(data.data);
+      } else if (data.type === "trades") {
+        for (const tradeData of data.data ?? []) {
+          processTrade(tradeData);
         }
       }
     };
