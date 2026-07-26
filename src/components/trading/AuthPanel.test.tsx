@@ -62,7 +62,7 @@ describe("AuthPanel balances", () => {
     expect(screen.getByTestId("balance-locked-BTC")).toHaveTextContent("0.25");
     expect(screen.getByTestId("balance-total-BTC")).toHaveTextContent("1.25");
     expect(screen.getByTestId("balance-avg-buy-BTC")).toHaveTextContent(
-      "90000 KRW",
+      "90,000 KRW",
     );
     expect(screen.getByTestId("balance-value-BTC")).toHaveTextContent(
       "125,000 KRW",
@@ -104,6 +104,29 @@ describe("AuthPanel balances", () => {
       "100,000 KRW",
     );
     expect(screen.getByTestId("account-unrealized-pnl")).toHaveTextContent("-");
+  });
+
+  it("formats a finite-precision average buy price without exposing decimal noise", () => {
+    render(
+      <AuthPanel
+        {...baseProps}
+        wallets={[
+          walletFixture({
+            coin_symbol: "BTC",
+            available_balance: "1",
+            total_balance: "1",
+            avg_buy_price: "50000010.9999999999999999",
+          }),
+        ]}
+        marketPrices={{ BTC: 100000 }}
+      />,
+    );
+
+    const avgBuyPrice = screen.getByTestId("balance-avg-buy-BTC");
+    expect(avgBuyPrice).not.toHaveTextContent(
+      "50000010.9999999999999999",
+    );
+    expect(avgBuyPrice).toHaveTextContent("50,000,011 KRW");
   });
 });
 
