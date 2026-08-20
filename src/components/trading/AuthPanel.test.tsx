@@ -376,4 +376,43 @@ describe("AuthPanel 계정 전환 시 취소 polling 정리", () => {
     expect(pollSpy).not.toHaveBeenCalled();
     expect(onRefresh).not.toHaveBeenCalled();
   });
+
+  // 뒤늦게 반환한 이전 요청의 finally가 현재 취소의 진행 상태까지 지우면,
+  // 아직 처리 중인 취소의 버튼이 다시 눌리게 된다.
+  it("이전 계정의 요청이 뒤늦게 끝나도 현재 취소의 진행 상태를 지우지 않는다", async () => {
+    const resolvers: Array<(value: typeof acceptance) => void> = [];
+    vi.spyOn(api, "cancelOrder").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    const { rerender } = render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    fireEvent.click(screen.getByRole("button", { name: /취소/ }));
+
+    // 로그아웃 후 다른 계정으로 재로그인하고, 그 계정의 주문을 취소한다.
+    rerender(<AuthPanel {...baseProps} token={null} user={null} orders={[]} />);
+    const otherOrder: Order = { ...openOrder, id: 77 };
+    rerender(
+      <AuthPanel
+        {...baseProps}
+        token="token-b"
+        user={{ id: 2, name: "Other", email: "other@example.com" }}
+        orders={[otherOrder]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /취소/ }));
+    expect(screen.getByRole("button", { name: /취소/ })).toBeDisabled();
+
+    // 계정 A의 요청이 이제서야 반환된다.
+    resolvers[0](acceptance);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(screen.getByRole("button", { name: /취소/ })).toBeDisabled();
+  });
 });

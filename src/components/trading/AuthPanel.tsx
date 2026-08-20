@@ -179,7 +179,15 @@ const AuthPanel = ({
         }
         setAuthError(err instanceof Error ? err.message : "주문 취소에 실패했습니다.");
       } finally {
-        setCancelingOrderID(null);
+        // 이 요청이 아직 "현재 작업"일 때만 진행 상태를 정리한다. 뒤늦게 반환한
+        // 이전 계정(또는 직전 취소)의 finally가 새 취소의 cancelingOrderID까지
+        // null로 지우면, 진행 중인 취소의 버튼이 다시 활성화된다.
+        if (cancelPollRef.current === controller) {
+          cancelPollRef.current = null;
+          if (!controller.signal.aborted) {
+            setCancelingOrderID(null);
+          }
+        }
       }
     };
 
