@@ -71,13 +71,14 @@ export interface OrderBookSnapshot {
   bids: OrderBookLevel[];
 }
 
+// 서버는 취소를 "완료"가 아니라 "접수"로 응답한다(202). 이 시점에는 주문이 아직
+// 오더북에 있을 수 있고 해제 금액도 확정되지 않았으므로, 예전의 released_*·
+// engine_removed 필드는 존재하지 않는다. 최종 상태는 주문 조회로 확인한다.
 export interface CancelOrderResponse {
   message: string;
   order_id: number;
-  status: "CANCELLED";
-  released_asset: string;
-  released_amount: string;
-  engine_removed: boolean;
+  command_id: number;
+  status: "ACCEPTED";
 }
 
 interface ApiErrorPayload {
@@ -156,6 +157,14 @@ export async function cancelOrder(
     method: "DELETE",
     token,
   });
+}
+
+export async function fetchOrder(
+  token: string,
+  orderID: number,
+  signal?: AbortSignal,
+): Promise<{ order: Order }> {
+  return apiRequest<{ order: Order }>(`/orders/${orderID}`, { token, signal });
 }
 
 export async function fetchWallets(

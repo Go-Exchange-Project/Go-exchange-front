@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AuthResponse,
   AuthUser,
@@ -7,11 +7,13 @@ import {
   Trade,
   Wallet,
   cancelOrder,
+  fetchOrder,
   fundWallet,
   isUnauthorizedError,
   loginUser,
   registerUser,
 } from "@/lib/api";
+import { pollCancelOutcome } from "@/lib/cancelPolling";
 import {
   History,
   ListChecks,
@@ -60,6 +62,11 @@ const AuthPanel = ({
   const [cancelingOrderID, setCancelingOrderID] = useState<number | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  // 취소 최종 상태 polling은 컴포넌트보다 오래 살면 안 된다.
+  const cancelPollRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => cancelPollRef.current?.abort();
+  }, []);
 
   const submit = async () => {
     setIsSubmitting(true);
@@ -123,13 +130,41 @@ const AuthPanel = ({
       setCancelingOrderID(orderID);
       setAuthError(null);
       setAccountMessage(null);
+
+      cancelPollRef.current?.abort();
+      const controller = new AbortController();
+      cancelPollRef.current = controller;
+
       try {
-        const result = await cancelOrder(token, orderID);
-        setAccountMessage(
-          `${result.released_amount} ${result.released_asset} 반환 완료`,
+        // 202는 "취소 의도가 내구적으로 저장됐다"이지 "오더북에서 제거됐다"가
+        // 아니다. 해제 금액은 이 응답이 알 수 없으므로 여기서 말하지 않는다.
+        await cancelOrder(token, orderID);
+        setAccountMessage("취소 요청 접수됨");
+        setCancelingOrderID(null);
+        onRefresh();
+
+        const outcome = await pollCancelOutcome(
+          async (signal) => (await fetchOrder(token, orderID, signal)).order,
+          controller.signal,
         );
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        if (outcome === "CANCELLED") {
+          setAccountMessage("취소 완료");
+        } else if (outcome === "FILLED") {
+          // 취소 실패가 아니다 — 취소가 닿기 전에 체결됐을 뿐이다.
+          setAccountMessage("취소 전에 체결 완료");
+        } else {
+          // end-to-end 상한이 없으므로 시간 초과를 실패로 바꾸지 않는다.
+          setAccountMessage("취소 요청 접수됨 · 처리 중");
+        }
         onRefresh();
       } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
         if (isUnauthorizedError(err)) {
           onAuthExpired();
           return;

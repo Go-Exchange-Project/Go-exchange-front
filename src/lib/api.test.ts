@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  cancelOrder,
   fetchMarketRules,
+  fetchOrder,
   fetchOrderBookSnapshot,
   fetchTrades,
   fetchWallets,
@@ -186,5 +188,60 @@ describe("apiRequest error handling", () => {
         },
       ],
     });
+  });
+});
+
+describe("cancelOrder 202 계약", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("202 접수 응답의 command_id와 ACCEPTED를 보존한다", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            message: "cancellation accepted",
+            order_id: 42,
+            command_id: 7,
+            status: "ACCEPTED",
+          },
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await cancelOrder("token", 42);
+
+    expect(result).toEqual({
+      message: "cancellation accepted",
+      order_id: 42,
+      command_id: 7,
+      status: "ACCEPTED",
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("단건 주문 조회가 인증 헤더와 AbortSignal을 전달한다", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ data: { order: { id: 42, status: "CANCELLED" } } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const result = await fetchOrder("token", 42, controller.signal);
+
+    expect(result.order.status).toBe("CANCELLED");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/orders/42");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token");
+    expect(init.signal).toBe(controller.signal);
   });
 });

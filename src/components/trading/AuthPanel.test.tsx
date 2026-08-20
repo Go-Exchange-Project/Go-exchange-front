@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import AuthPanel from "./AuthPanel";
-import type { Trade, Wallet } from "@/lib/api";
+import * as api from "@/lib/api";
+import * as cancelPolling from "@/lib/cancelPolling";
+import type { Order, Trade, Wallet } from "@/lib/api";
 
 const baseProps = {
   token: "token",
@@ -199,3 +201,100 @@ function walletFixture(overrides: Partial<Wallet> = {}): Wallet {
     ...overrides,
   };
 }
+
+describe("AuthPanel 취소 접수와 최종 상태 표시", () => {
+  const openOrder: Order = {
+    id: 42,
+    coin_symbol: "BTC",
+    side: "BUY",
+    order_type: "LIMIT",
+    status: "PENDING",
+    price: "100",
+    amount: "5",
+    quote_amount: "0",
+    filled_amount: "0",
+    filled_quote_amount: "0",
+    remaining: "5",
+    created_at: "2026-08-20T00:00:00Z",
+  };
+
+  const acceptance = {
+    message: "cancellation accepted",
+    order_id: 42,
+    command_id: 7,
+    status: "ACCEPTED" as const,
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const clickCancel = () => {
+    fireEvent.click(screen.getByRole("button", { name: /취소/ }));
+  };
+
+  it("202 직후에는 접수됨을 표시한다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    clickCancel();
+
+    expect(await screen.findByText(/취소 요청 접수됨/)).toBeInTheDocument();
+    // 이 응답은 해제 금액을 알지 못한다 — undefined가 화면에 나오면 안 된다.
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+
+  it("CANCELLED에 도달하면 취소 완료를 표시한다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockResolvedValue("CANCELLED");
+
+    render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    clickCancel();
+
+    expect(await screen.findByText(/취소 완료/)).toBeInTheDocument();
+  });
+
+  it("FILLED면 취소 전에 체결됐음을 알리고 실패로 표시하지 않는다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockResolvedValue("FILLED");
+
+    render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    clickCancel();
+
+    expect(await screen.findByText(/취소 전에 체결/)).toBeInTheDocument();
+    expect(screen.queryByText(/실패/)).not.toBeInTheDocument();
+  });
+
+  it("시간이 초과되면 처리 중 상태를 유지한다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockResolvedValue(null);
+
+    render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    clickCancel();
+
+    expect(await screen.findByText(/처리 중/)).toBeInTheDocument();
+    expect(screen.queryByText(/실패/)).not.toBeInTheDocument();
+  });
+
+  it("unmount되면 polling을 중단한다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockImplementation(
+      (_fetchCurrent, signal) => {
+        capturedSignal = signal;
+        return new Promise(() => {});
+      },
+    );
+
+    const { unmount } = render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    clickCancel();
+    await screen.findByText(/취소 요청 접수됨/);
+
+    unmount();
+
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+});
