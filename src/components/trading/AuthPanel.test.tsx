@@ -298,3 +298,82 @@ describe("AuthPanel 취소 접수와 최종 상태 표시", () => {
     expect(capturedSignal?.aborted).toBe(true);
   });
 });
+
+describe("AuthPanel 계정 전환 시 취소 polling 정리", () => {
+  const openOrder: Order = {
+    id: 42,
+    coin_symbol: "BTC",
+    side: "BUY",
+    order_type: "LIMIT",
+    status: "PENDING",
+    price: "100",
+    amount: "5",
+    quote_amount: "0",
+    filled_amount: "0",
+    filled_quote_amount: "0",
+    remaining: "5",
+    created_at: "2026-08-20T00:00:00Z",
+  };
+
+  const acceptance = {
+    message: "cancellation accepted",
+    order_id: 42,
+    command_id: 7,
+    status: "ACCEPTED" as const,
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // 로그아웃해도 이 컴포넌트는 mount된 채 props만 바뀐다. 이전 계정의 polling이
+  // 살아 있으면 재로그인한 계정 화면을 이전 계정 데이터로 덮어쓴다.
+  it("token이 null로 바뀌면 진행 중인 polling을 중단한다", async () => {
+    vi.spyOn(api, "cancelOrder").mockResolvedValue(acceptance);
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(cancelPolling, "pollCancelOutcome").mockImplementation(
+      (_fetchCurrent, signal) => {
+        capturedSignal = signal;
+        return new Promise(() => {});
+      },
+    );
+
+    const { rerender } = render(<AuthPanel {...baseProps} orders={[openOrder]} />);
+    fireEvent.click(screen.getByRole("button", { name: /취소/ }));
+    await screen.findByText(/취소 요청 접수됨/);
+
+    rerender(<AuthPanel {...baseProps} token={null} user={null} orders={[]} />);
+
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  // cancelOrder가 반환되기 전에 로그아웃하면, 그 뒤의 상태 갱신은 남의 계정 화면을
+  // 건드리는 것이다.
+  it("cancelOrder 응답 전에 로그아웃하면 접수 문구를 남기지 않는다", async () => {
+    let resolveCancel: (value: typeof acceptance) => void = () => {};
+    vi.spyOn(api, "cancelOrder").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCancel = resolve;
+        }),
+    );
+    const pollSpy = vi
+      .spyOn(cancelPolling, "pollCancelOutcome")
+      .mockImplementation(() => new Promise(() => {}));
+    const onRefresh = vi.fn();
+
+    const { rerender } = render(
+      <AuthPanel {...baseProps} orders={[openOrder]} onRefresh={onRefresh} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /취소/ }));
+
+    rerender(
+      <AuthPanel {...baseProps} token={null} user={null} orders={[]} onRefresh={onRefresh} />,
+    );
+    resolveCancel(acceptance);
+    await Promise.resolve();
+
+    expect(pollSpy).not.toHaveBeenCalled();
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+});

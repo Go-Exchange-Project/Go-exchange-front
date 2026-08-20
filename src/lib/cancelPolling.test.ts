@@ -111,3 +111,49 @@ describe("pollCancelOutcome", () => {
     expect(outcome).toBeNull();
   });
 });
+
+describe("pollCancelOutcome deadline", () => {
+  // deadline을 fetch 호출 전에만 검사하면, 멈춘 fetch 하나가 timeout 계약을
+  // 통째로 무효화한다.
+  it("진행 중인 fetch가 멈춰도 상한이 지나면 null을 돌려준다", async () => {
+    const fetchCurrent = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<Order>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+
+    const outcome = await pollCancelOutcome(fetchCurrent, new AbortController().signal, {
+      intervalMs: 1,
+      timeoutMs: 20,
+    });
+
+    expect(outcome).toBeNull();
+    expect(fetchCurrent).toHaveBeenCalledTimes(1);
+  });
+
+  it("호출자가 abort하면 진행 중인 fetch도 함께 끊긴다", async () => {
+    const controller = new AbortController();
+    let observed: AbortSignal | undefined;
+    const fetchCurrent = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<Order>((_resolve, reject) => {
+          observed = signal;
+          signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+
+    const pending = pollCancelOutcome(fetchCurrent, controller.signal, {
+      intervalMs: 1,
+      timeoutMs: 5_000,
+    });
+    controller.abort();
+
+    await expect(pending).resolves.toBeNull();
+    expect(observed?.aborted).toBe(true);
+  });
+});

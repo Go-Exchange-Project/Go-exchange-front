@@ -62,11 +62,14 @@ const AuthPanel = ({
   const [cancelingOrderID, setCancelingOrderID] = useState<number | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
-  // 취소 최종 상태 polling은 컴포넌트보다 오래 살면 안 된다.
+  // 취소 최종 상태 polling은 컴포넌트보다 오래 살면 안 되고, 계정보다도 오래
+  // 살면 안 된다. 이 컴포넌트는 로그아웃 후에도 mount된 채 props만 바뀌므로,
+  // unmount만 정리하면 이전 계정의 polling이 살아남아 재로그인한 계정의 화면을
+  // 이전 계정의 onRefresh 결과로 덮어쓸 수 있다.
   const cancelPollRef = useRef<AbortController | null>(null);
   useEffect(() => {
     return () => cancelPollRef.current?.abort();
-  }, []);
+  }, [token, user?.id]);
 
   const submit = async () => {
     setIsSubmitting(true);
@@ -139,6 +142,11 @@ const AuthPanel = ({
         // 202는 "취소 의도가 내구적으로 저장됐다"이지 "오더북에서 제거됐다"가
         // 아니다. 해제 금액은 이 응답이 알 수 없으므로 여기서 말하지 않는다.
         await cancelOrder(token, orderID);
+        // 이 await 동안 로그아웃·unmount가 일어났을 수 있다. 확인 없이 상태를
+        // 건드리면 이미 남의 계정 화면이다.
+        if (controller.signal.aborted) {
+          return;
+        }
         setAccountMessage("취소 요청 접수됨");
         setCancelingOrderID(null);
         onRefresh();

@@ -17,21 +17,36 @@ export async function pollCancelOutcome(
 ): Promise<CancelOutcome> {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
+
+  // deadline을 호출 전에만 검사하면 진행 중인 fetch가 멈췄을 때 영원히 반환하지
+  // 않는다. 내부 controller가 상한에서 그 fetch까지 끊는다. 호출자의 abort도
+  // 여기로 전달해 fetchCurrent가 하나의 signal만 보게 한다.
+  const deadlineController = new AbortController();
+  const onCallerAbort = () => deadlineController.abort();
+  if (signal.aborted) {
+    deadlineController.abort();
+  } else {
+    signal.addEventListener("abort", onCallerAbort, { once: true });
+  }
+  const timer = setTimeout(() => deadlineController.abort(), timeoutMs);
+  const pollSignal = deadlineController.signal;
 
   try {
-    while (!signal.aborted && Date.now() < deadline) {
-      const order = await fetchCurrent(signal);
+    while (!pollSignal.aborted) {
+      const order = await fetchCurrent(pollSignal);
       if (order.status === "CANCELLED" || order.status === "FILLED") {
         return order.status;
       }
-      await abortableDelay(intervalMs, signal);
+      await abortableDelay(intervalMs, pollSignal);
     }
   } catch (error) {
-    // abort는 호출자가 의도한 중단이므로 오류로 전파하지 않는다.
-    if (!signal.aborted) {
+    // 상한 도달과 호출자 중단은 모두 의도된 종료다 — 오류로 전파하지 않는다.
+    if (!pollSignal.aborted) {
       throw error;
     }
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onCallerAbort);
   }
 
   return null;
