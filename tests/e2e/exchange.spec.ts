@@ -61,10 +61,13 @@ interface TradesResponse {
   trades: TradeResponse[];
 }
 
+// 취소는 202 "접수"로 응답한다. 이 시점에는 주문이 아직 오더북에 있을 수 있고
+// 해제 금액도 확정되지 않았으므로, 최종 상태는 주문 조회로 확인해야 한다.
 interface CancelOrderResponse {
-  status: "CANCELLED";
-  released_asset: string;
-  released_amount: string;
+  message: string;
+  order_id: number;
+  command_id: number;
+  status: "ACCEPTED";
 }
 
 test.beforeEach(async ({ request }) => {
@@ -159,7 +162,11 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await expect(cancelButton).toHaveCount(1);
   await cancelButton.click();
 
-  await expect(page.getByText("5002.5 KRW 반환 완료")).toBeVisible();
+  // 클릭 직후에는 "취소 요청 접수됨"이지만 polling이 이미 최종 상태를 받았을 수도
+  // 있다. 둘 다 허용하고, 최종적으로 "취소 완료"에 도달하는지를 단언한다.
+  await expect(page.getByText(/취소 (요청 접수됨|완료)/)).toBeVisible();
+  await expect(page.getByText("취소 완료")).toBeVisible();
+
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("krw-locked")).toHaveText("0");
   await expect(page.getByTestId("open-order-count")).toHaveText("0");
@@ -513,6 +520,7 @@ test("another user cannot cancel someone else's open order", async ({
   expect(findOrder(ownerOrders, order.order_id)?.status).toBe("PENDING");
 
   await cancelOrder(request, owner.token, order.order_id);
+  await waitForOrderStatus(request, owner.token, order.order_id, "CANCELLED");
 });
 
 test("incoming buy skips the user's own best ask and matches another seller", async ({
@@ -599,11 +607,11 @@ test("partially filled buy order releases only remaining KRW when cancelled", as
   await waitForOrderStatus(request, seller.token, sellOrder.order_id, "FILLED");
 
   const cancelResult = await cancelOrder(request, buyer.token, buyOrder.order_id);
-  expect(cancelResult).toMatchObject({
-    status: "CANCELLED",
-    released_asset: "KRW",
-    released_amount: "5002.5",
-  });
+  expect(cancelResult).toMatchObject({ status: "ACCEPTED" });
+  expect(cancelResult.command_id).toBeGreaterThan(0);
+
+  // 응답은 해제 금액을 알지 못한다 — 지갑·원장 결과로만 확인한다.
+  await waitForOrderStatus(request, buyer.token, buyOrder.order_id, "CANCELLED");
 
   const buyerWallets = await fetchWallets(request, buyer.token);
   const buyerOrders = await fetchOrders(request, buyer.token);
@@ -860,10 +868,11 @@ test("duplicate cancel does not release locked balance twice", async ({
   });
 
   const firstCancel = await cancelOrder(request, buyer.token, buyOrder.order_id);
-  expect(firstCancel).toMatchObject({
-    status: "CANCELLED",
-    released_amount: "5002.5",
-  });
+  expect(firstCancel).toMatchObject({ status: "ACCEPTED" });
+
+  // 최종 상태가 반영된 뒤의 재요청만 409다. 그 전에는 같은 command로 202가 돌아온다
+  // — 그 창은 백엔드 통합 테스트가 고정한다.
+  await waitForOrderStatus(request, buyer.token, buyOrder.order_id, "CANCELLED");
 
   const duplicateCancel = await request.delete(
     `${apiBaseURL}/orders/${buyOrder.order_id}`,
@@ -960,6 +969,7 @@ async function cancelOrder(
   if (!response.ok()) {
     throw new Error(`cancel order failed: ${response.status()} ${await response.text()}`);
   }
+  expect(response.status()).toBe(202);
   return responseData<CancelOrderResponse>(response);
 }
 
