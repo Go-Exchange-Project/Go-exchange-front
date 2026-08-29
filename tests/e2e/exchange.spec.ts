@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, test } from "@playwright/test";
+import { expect, type APIRequestContext, type Page, test } from "@playwright/test";
 
 const apiBaseURL =
   process.env.E2E_API_BASE_URL ??
@@ -170,6 +170,88 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("krw-locked")).toHaveText("0");
   await expect(page.getByTestId("open-order-count")).toHaveText("0");
+});
+
+// 브라우저가 실제로 헤더를 붙이는지는 단위 테스트로 알 수 없다. 빠지면 서버가 400을
+// 내므로 주문 자체가 되지 않는다.
+test("browser order submission carries an Idempotency-Key header", async ({ page }) => {
+  const orderKeys: (string | undefined)[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/orders")) {
+      orderKeys.push(request.headers()["idempotency-key"]);
+    }
+  });
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Idempotent");
+  await page.getByTestId("auth-email").fill(uniqueEmail("idem"));
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("fund-krw").click();
+  await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+
+  await page.getByTestId("order-price").fill("5000");
+  await page.getByTestId("order-amount").fill("1");
+  await page.getByTestId("submit-order").click();
+  await expect(page.getByTestId("order-message")).toContainText("주문 접수");
+
+  expect(orderKeys).toHaveLength(1);
+  expect(orderKeys[0]).toBeTruthy();
+
+  // 서버 응답이 도착했으므로 다음 제출은 새 주문 의도다 — 같은 키를 쓰면 새 주문 대신
+  // 이전 결과가 replay된다.
+  await page.getByTestId("order-amount").fill("1");
+  await page.getByTestId("submit-order").click();
+  await expect
+    .poll(() => orderKeys.length)
+    .toBe(2);
+  expect(orderKeys[1]).toBeTruthy();
+  expect(orderKeys[1]).not.toBe(orderKeys[0]);
+  await expect(page.getByTestId("open-order-count")).toHaveText("2");
+
+  // 남긴 주문은 오더북에 그대로 쌓여 뒤 테스트의 체결 상대가 된다. 반드시 되돌린다.
+  await cancelAllOpenOrdersFromUI(page);
+});
+
+// 응답을 받지 못한 요청의 재전송을 모사한다. 같은 키면 주문도 hold도 한 번이어야 한다.
+test("duplicate order submission with the same key creates one order", async ({
+  request,
+}) => {
+  const user = await register(request, "dup-key");
+  await fundWallet(request, user.token, "KRW", "1000000");
+
+  const key = newIdempotencyKey();
+  const order = {
+    coin_symbol: "BTC",
+    side: "BUY" as const,
+    order_type: "LIMIT" as const,
+    price: "5000",
+    amount: "1",
+  };
+
+  const first = await createOrder(request, user.token, order, key);
+  const second = await createOrder(request, user.token, order, key);
+
+  expect(second.order_id).toBe(first.order_id);
+  expect(second.idempotent_replay).toBe(true);
+  expect(first.idempotent_replay).toBeUndefined();
+
+  const orders = await fetchOrders(request, user.token);
+  expect(orders.orders.filter((o) => o.id === first.order_id)).toHaveLength(1);
+
+  // hold도 한 번만 잡혀야 한다. 두 번이면 5002.5의 두 배가 잠긴다.
+  const wallets = await fetchWallets(request, user.token);
+  expect(walletBalance(wallets, "KRW")).toMatchObject({
+    locked_balance: "5002.5",
+    available_balance: "994997.5",
+  });
+
+  // 남긴 주문은 오더북에 그대로 쌓여 뒤 테스트의 체결 상대가 된다. 반드시 되돌린다.
+  await cancelOrder(request, user.token, first.order_id);
+  await waitForOrderStatus(request, user.token, first.order_id, "CANCELLED");
 });
 
 test("seller and buyer orders match through HTTP APIs and settle both wallets", async ({
@@ -345,7 +427,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   const user = await register(request, "status");
 
   const invalidPrice = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "BTC",
       side: "BUY",
@@ -357,7 +439,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(invalidPrice.status()).toBe(422);
 
   const invalidTick = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "BTC",
       side: "BUY",
@@ -369,7 +451,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(invalidTick.status()).toBe(422);
 
   const invalidQuantityStep = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "BTC",
       side: "SELL",
@@ -382,7 +464,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(invalidQuantityStep.status()).toBe(422);
 
   const invalidXRPQuantityStep = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "XRP",
       side: "SELL",
@@ -395,7 +477,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(invalidXRPQuantityStep.status()).toBe(422);
 
   const haltedMarket = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "HALT",
       side: "BUY",
@@ -407,7 +489,7 @@ test("order validation uses precise HTTP status codes", async ({ request }) => {
   expect(haltedMarket.status()).toBe(409);
 
   const insufficientBalance = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(user.token),
+    headers: orderHeaders(user.token, newIdempotencyKey()),
     data: {
       coin_symbol: "BTC",
       side: "BUY",
@@ -947,15 +1029,18 @@ async function createOrder(
     amount?: string;
     quote_amount?: string;
   },
+  // 기본값은 호출마다 새 키다 — 각 helper 호출은 서로 다른 주문 의도다.
+  // 같은 키의 재전송을 검증하는 테스트만 명시적으로 키를 넘긴다.
+  idempotencyKey: string = newIdempotencyKey(),
 ) {
   const response = await request.post(`${apiBaseURL}/orders`, {
-    headers: authHeaders(token),
+    headers: orderHeaders(token, idempotencyKey),
     data,
   });
   if (!response.ok()) {
     throw new Error(`create order failed: ${response.status()} ${await response.text()}`);
   }
-  return responseData<{ order_id: number }>(response);
+  return responseData<{ order_id: number; idempotent_replay?: boolean }>(response);
 }
 
 async function cancelOrder(
@@ -1041,8 +1126,28 @@ async function waitForOrderStatus(
     .toBe(status);
 }
 
+// 이 파일의 테스트는 하나의 BTC 오더북을 공유한다. 미체결로 남긴 주문은 뒤 테스트의
+// 체결 상대가 되어 그 테스트를 조용히 깨뜨리므로, 만든 주문은 되돌려 놓는다.
+async function cancelAllOpenOrdersFromUI(page: Page) {
+  const cancelButtons = page.locator('[data-testid^="cancel-order-"]');
+  for (let remaining = await cancelButtons.count(); remaining > 0; remaining--) {
+    await cancelButtons.first().click();
+    await expect(cancelButtons).toHaveCount(remaining - 1);
+  }
+  await expect(page.getByTestId("open-order-count")).toHaveText("0");
+}
+
 function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
+}
+
+// 주문 생성은 Idempotency-Key를 요구한다. 없으면 400이다.
+function orderHeaders(token: string, idempotencyKey: string) {
+  return { ...authHeaders(token), "Idempotency-Key": idempotencyKey };
+}
+
+function newIdempotencyKey() {
+  return `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function uniqueEmail(role: string) {
