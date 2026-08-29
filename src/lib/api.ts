@@ -97,17 +97,38 @@ interface ApiDataPayload<T> {
 export class ApiError extends Error {
   status: number;
   code: string;
+  // 주문 생성 503은 order_id와 durable outcome을 함께 싣는다. 오류에서 이를 버리면
+  // 사용자가 그 주문을 찾아갈 수 없다.
+  data?: unknown;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, data?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
 export function isUnauthorizedError(error: unknown) {
   return error instanceof ApiError && error.status === 401;
+}
+
+export interface OrderFailureDetail {
+  order_id: number;
+  status: "REJECTED" | "UNKNOWN" | "PENDING";
+}
+
+// orderFailureDetail은 실패 응답에서 주문 식별자와 durable outcome을 꺼낸다.
+// 응답이 도착하지 않은 network error에는 아무것도 없다 — null이 곧 "서버가 답하지 않았다"다.
+export function orderFailureDetail(error: unknown): OrderFailureDetail | null {
+  if (!(error instanceof ApiError) || !isRecord(error.data)) return null;
+
+  const { order_id: orderID, status } = error.data;
+  if (typeof orderID !== "number") return null;
+  if (status !== "REJECTED" && status !== "UNKNOWN" && status !== "PENDING") return null;
+
+  return { order_id: orderID, status };
 }
 
 export async function registerUser(input: {
@@ -131,20 +152,32 @@ export async function loginUser(input: {
   });
 }
 
+export interface CreateOrderInput {
+  coin_symbol: string;
+  side: "BUY" | "SELL";
+  order_type: "LIMIT" | "MARKET";
+  price?: string;
+  amount?: string;
+  quote_amount?: string;
+}
+
+// 200은 message를, 202(PENDING)는 status를 싣는다. 둘 다 order_id는 있다.
+export interface CreateOrderResponse {
+  message?: string;
+  order_id: number;
+  status?: "PENDING";
+  idempotent_replay?: boolean;
+}
+
 export async function createOrder(
   token: string,
-  input: {
-    coin_symbol: string;
-    side: "BUY" | "SELL";
-    order_type: "LIMIT" | "MARKET";
-    price?: string;
-    amount?: string;
-    quote_amount?: string;
-  },
-): Promise<{ message: string; order_id: number }> {
-  return apiRequest<{ message: string; order_id: number }>("/orders", {
+  input: CreateOrderInput,
+  idempotencyKey: string,
+): Promise<CreateOrderResponse> {
+  return apiRequest<CreateOrderResponse>("/orders", {
     method: "POST",
     token,
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
 }
@@ -235,7 +268,12 @@ async function apiRequest<T>(
 
   if (!response.ok) {
     const { code, message } = parseAPIError(data as ApiErrorPayload);
-    throw new ApiError(response.status, code, message);
+    throw new ApiError(
+      response.status,
+      code,
+      message,
+      isRecord(data) ? (data as ApiDataPayload<unknown>).data : undefined,
+    );
   }
 
   return unwrapAPIData<T>(data);

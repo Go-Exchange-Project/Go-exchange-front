@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   cancelOrder,
+  createOrder,
   fetchMarketRules,
   fetchOrder,
   fetchOrderBookSnapshot,
   fetchTrades,
   fetchWallets,
   isUnauthorizedError,
+  orderFailureDetail,
 } from "./api";
 
 describe("apiRequest error handling", () => {
@@ -243,5 +245,87 @@ describe("cancelOrder 202 계약", () => {
     expect(url).toContain("/orders/42");
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token");
     expect(init.signal).toBe(controller.signal);
+  });
+});
+
+describe("createOrder idempotency contract", () => {
+  const validInput = {
+    coin_symbol: "BTC",
+    side: "BUY" as const,
+    order_type: "LIMIT" as const,
+    price: "5000",
+    amount: "1",
+    quote_amount: "0",
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the Idempotency-Key header", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ data: { message: "order accepted", order_id: 1 } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOrder("token", validInput, "key-1");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe("key-1");
+  });
+
+  // 202는 "주문은 있는데 그 뒤를 서버가 확정하지 못했다"이다. 실패로 던지면 사용자는
+  // 이미 존재하는 주문을 다시 내려 한다.
+  it("returns the PENDING outcome from a 202 instead of throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: { order_id: 7, status: "PENDING", idempotent_replay: true },
+            }),
+            { status: 202, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    await expect(createOrder("token", validInput, "key-1")).resolves.toMatchObject({
+      order_id: 7,
+      status: "PENDING",
+      idempotent_replay: true,
+    });
+  });
+
+  // 503도 order_id와 durable outcome을 싣는다. 오류에서 이를 잃으면 사용자가 그 주문을
+  // 찾아갈 수 없다.
+  it("keeps order_id and status from a 503 failure body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: "SERVICE_UNAVAILABLE", message: "order was not accepted" },
+              data: { order_id: 9, status: "REJECTED" },
+            }),
+            { status: 503, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const error = await createOrder("token", validInput, "key-1").catch((e) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(orderFailureDetail(error)).toEqual({ order_id: 9, status: "REJECTED" });
+  });
+
+  it("reports no failure detail for errors without an outcome body", () => {
+    expect(orderFailureDetail(new ApiError(500, "INTERNAL", "boom"))).toBeNull();
+    expect(orderFailureDetail(new TypeError("Failed to fetch"))).toBeNull();
   });
 });

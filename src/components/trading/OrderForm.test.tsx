@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrderForm from "./OrderForm";
-import { createOrder } from "@/lib/api";
+import { ApiError, createOrder } from "@/lib/api";
 import type { MarketRules } from "@/lib/orderPolicy";
 
 vi.mock("@/lib/api", async () => {
@@ -78,14 +78,18 @@ describe("OrderForm market orders", () => {
     fireEvent.click(screen.getByTestId("submit-order"));
 
     await waitFor(() => {
-      expect(createOrderMock).toHaveBeenCalledWith("token", {
-        coin_symbol: "BTC",
-        side: "BUY",
-        order_type: "MARKET",
-        price: "0",
-        amount: "0",
-        quote_amount: "10000",
-      });
+      expect(createOrderMock).toHaveBeenCalledWith(
+        "token",
+        {
+          coin_symbol: "BTC",
+          side: "BUY",
+          order_type: "MARKET",
+          price: "0",
+          amount: "0",
+          quote_amount: "10000",
+        },
+        expect.any(String),
+      );
     });
   });
 
@@ -107,14 +111,18 @@ describe("OrderForm market orders", () => {
     fireEvent.click(screen.getByTestId("submit-order"));
 
     await waitFor(() => {
-      expect(createOrderMock).toHaveBeenCalledWith("token", {
-        coin_symbol: "BTC",
-        side: "SELL",
-        order_type: "MARKET",
-        price: "0",
-        amount: "0.5",
-        quote_amount: "0",
-      });
+      expect(createOrderMock).toHaveBeenCalledWith(
+        "token",
+        {
+          coin_symbol: "BTC",
+          side: "SELL",
+          order_type: "MARKET",
+          price: "0",
+          amount: "0.5",
+          quote_amount: "0",
+        },
+        expect.any(String),
+      );
     });
   });
 
@@ -234,14 +242,18 @@ describe("OrderForm market orders", () => {
     fireEvent.click(screen.getByTestId("submit-order"));
 
     await waitFor(() => {
-      expect(createOrderMock).toHaveBeenCalledWith("token", {
-        coin_symbol: "XRP",
-        side: "BUY",
-        order_type: "LIMIT",
-        price: "1848",
-        amount: "1",
-        quote_amount: "0",
-      });
+      expect(createOrderMock).toHaveBeenCalledWith(
+        "token",
+        {
+          coin_symbol: "XRP",
+          side: "BUY",
+          order_type: "LIMIT",
+          price: "1848",
+          amount: "1",
+          quote_amount: "0",
+        },
+        expect.any(String),
+      );
     });
   });
 
@@ -265,5 +277,145 @@ describe("OrderForm market orders", () => {
     );
     expect(screen.getByTestId("submit-order")).toBeDisabled();
     expect(createOrderMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("OrderForm idempotency key lifecycle", () => {
+  const keyOfCall = (index: number) => createOrderMock.mock.calls[index][2];
+
+  const submitLimitBuy = (amount: string) => {
+    fireEvent.change(screen.getByTestId("order-amount"), { target: { value: amount } });
+    fireEvent.click(screen.getByTestId("submit-order"));
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createOrderMock.mockResolvedValue({ message: "order accepted", order_id: 1 });
+  });
+
+  it("sends an idempotency key on the first order", async () => {
+    render(<OrderForm {...baseProps} />);
+    submitLimitBuy("1");
+
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+    expect(keyOfCall(0)).toBeTruthy();
+  });
+
+  // 응답이 도착하지 않았으면 서버가 이미 그 주문을 만들었는지 알 수 없다. 같은 키로
+  // 다시 보내야 중복 주문이 생기지 않는다.
+  it("reuses the same key when the first attempt got no response", async () => {
+    createOrderMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // 입력이 바뀌면 다른 주문이다. 같은 키를 쓰면 서버가 409로 거절한다.
+  it("creates a new key when the order inputs change", async () => {
+    createOrderMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    // 잔고(10000 KRW)와 최소 주문금액(5000 KRW) 사이에 드는 수량으로 바꾼다.
+    submitLimitBuy("1.5");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).not.toBe(keyOfCall(0));
+  });
+
+  // 서버 응답이 도착하면 그 시도는 끝났다. 다음 제출은 새 주문 의도이므로 새 키여야
+  // 한다 — 같은 키를 쓰면 새 주문 대신 이전 결과가 replay된다.
+  it("creates a new key after a server response", async () => {
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).not.toBe(keyOfCall(0));
+  });
+
+  // 503은 서버가 답한 것이다. REJECTED는 안내대로 새 키가 필요하고, UNKNOWN도 같은 키
+  // 반복 제출로는 풀리지 않는다.
+  it("creates a new key after a 503 outcome response", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(503, "SERVICE_UNAVAILABLE", "order was not accepted", {
+        order_id: 42,
+        status: "REJECTED",
+      }),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).not.toBe(keyOfCall(0));
+  });
+
+  it("shows the order id and outcome for a REJECTED 503", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(503, "SERVICE_UNAVAILABLE", "order was not accepted", {
+        order_id: 42,
+        status: "REJECTED",
+      }),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("order-error")).toHaveTextContent("주문 #42");
+      expect(screen.getByTestId("order-error")).toHaveTextContent("잠금이 해제됐습니다");
+    });
+  });
+
+  it("tells the user to check the order status for an UNKNOWN 503", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(503, "SERVICE_UNAVAILABLE", "state could not be finalized", {
+        order_id: 43,
+        status: "UNKNOWN",
+      }),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("order-error")).toHaveTextContent("주문 #43");
+      expect(screen.getByTestId("order-error")).toHaveTextContent("상태를 먼저 확인");
+    });
+  });
+
+  // 202는 주문이 존재한다는 뜻이다. 실패로 표시하면 사용자가 같은 주문을 또 낸다.
+  it("does not show a 202 PENDING response as a failure", async () => {
+    createOrderMock.mockResolvedValueOnce({
+      order_id: 7,
+      status: "PENDING",
+      idempotent_replay: false,
+    });
+    const onOrderAccepted = vi.fn();
+    render(<OrderForm {...baseProps} onOrderAccepted={onOrderAccepted} />);
+
+    submitLimitBuy("1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("order-message")).toHaveTextContent("주문 #7");
+      expect(screen.getByTestId("order-message")).toHaveTextContent("상태를 확인");
+    });
+    expect(screen.queryByTestId("order-error")).not.toBeInTheDocument();
+    expect(onOrderAccepted).toHaveBeenCalled();
   });
 });
