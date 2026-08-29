@@ -89,6 +89,7 @@ describe("OrderForm market orders", () => {
           quote_amount: "10000",
         },
         expect.any(String),
+        expect.anything(),
       );
     });
   });
@@ -122,6 +123,7 @@ describe("OrderForm market orders", () => {
           quote_amount: "0",
         },
         expect.any(String),
+        expect.anything(),
       );
     });
   });
@@ -253,6 +255,7 @@ describe("OrderForm market orders", () => {
           quote_amount: "0",
         },
         expect.any(String),
+        expect.anything(),
       );
     });
   });
@@ -397,6 +400,111 @@ describe("OrderForm idempotency key lifecycle", () => {
       expect(screen.getByTestId("order-error")).toHaveTextContent("주문 #43");
       expect(screen.getByTestId("order-error")).toHaveTextContent("상태를 먼저 확인");
     });
+  });
+
+  // 계정 A의 응답이 늦게 도착해 계정 B의 화면을 덮으면, B 사용자는 자기가 내지 않은
+  // 주문의 결과를 보고 A 토큰으로 계정 정보가 갱신된다.
+  it("discards a late response from the previous account", async () => {
+    let resolveA: (value: { message: string; order_id: number }) => void = () => {};
+    createOrderMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveA = resolve; }),
+    );
+    const onOrderAccepted = vi.fn();
+
+    // 1) 계정 A 주문 요청 대기
+    const { rerender } = render(
+      <OrderForm {...baseProps} authToken="token-a" onOrderAccepted={onOrderAccepted} />,
+    );
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+
+    // 2) 로그아웃 후 계정 B 로그인
+    rerender(<OrderForm {...baseProps} authToken={null} onOrderAccepted={onOrderAccepted} />);
+    rerender(
+      <OrderForm {...baseProps} authToken="token-b" onOrderAccepted={onOrderAccepted} />,
+    );
+    onOrderAccepted.mockClear();
+
+    // 3) B가 새 주문 시작
+    createOrderMock.mockResolvedValueOnce({ message: "order accepted", order_id: 99 });
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("order-message")).toHaveTextContent("주문 접수 #99"),
+    );
+    const acceptedForB = onOrderAccepted.mock.calls.length;
+
+    // 4) A 요청이 뒤늦게 완료
+    resolveA({ message: "order accepted", order_id: 1 });
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    // 5) A의 응답이 B의 화면을 바꾸지 않았다
+    expect(screen.getByTestId("order-message")).toHaveTextContent("주문 접수 #99");
+    expect(screen.queryByTestId("order-error")).not.toBeInTheDocument();
+    expect(onOrderAccepted.mock.calls.length).toBe(acceptedForB);
+    expect(screen.getByTestId("submit-order")).not.toHaveTextContent("제출 중");
+  });
+
+  // A의 늦은 응답이 B의 **진행 중** 제출을 풀어 버리면 B가 같은 주문을 두 번 낼 수 있다.
+  it("does not clear the new account's in-flight submitting state", async () => {
+    let resolveA: (value: { message: string; order_id: number }) => void = () => {};
+    createOrderMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveA = resolve; }),
+    );
+
+    const { rerender } = render(<OrderForm {...baseProps} authToken="token-a" />);
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+
+    rerender(<OrderForm {...baseProps} authToken="token-b" />);
+
+    // B의 요청은 끝나지 않는다 — 계속 "제출 중"이어야 한다.
+    createOrderMock.mockImplementationOnce(() => new Promise(() => {}));
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("submit-order")).toHaveTextContent("제출 중"),
+    );
+
+    // A가 뒤늦게 끝나도 B의 제출 상태를 건드리면 안 된다.
+    resolveA({ message: "order accepted", order_id: 1 });
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByTestId("submit-order")).toHaveTextContent("제출 중");
+    expect(screen.getByTestId("submit-order")).toBeDisabled();
+  });
+
+  // 계정이 바뀌면 진행 중이던 요청을 실제로 끊는다. 세대 확인만으로는 응답을 기다린다.
+  it("aborts the in-flight order request when the account changes", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    createOrderMock.mockImplementationOnce((_token, _input, _key, signal) => {
+      capturedSignal = signal as AbortSignal | undefined;
+      return new Promise(() => {});
+    });
+
+    const { rerender } = render(<OrderForm {...baseProps} authToken="token-a" />);
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+    expect(capturedSignal?.aborted).toBe(false);
+
+    rerender(<OrderForm {...baseProps} authToken="token-b" />);
+
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  // 키는 계정에 묶인다. 계정이 바뀐 뒤 이전 키를 재사용하면 다른 사용자의 키가 된다.
+  it("does not reuse the previous account's key after switching", async () => {
+    createOrderMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { rerender } = render(<OrderForm {...baseProps} authToken="token-a" />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    rerender(<OrderForm {...baseProps} authToken="token-b" />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+    expect(keyOfCall(1)).not.toBe(keyOfCall(0));
   });
 
   // 202는 주문이 존재한다는 뜻이다. 실패로 표시하면 사용자가 같은 주문을 또 낸다.

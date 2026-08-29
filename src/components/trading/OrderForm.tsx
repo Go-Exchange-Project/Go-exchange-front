@@ -59,6 +59,10 @@ const OrderForm = ({
   // 응답을 받지 못한 시도의 키를 들고 있는다. 서버 응답이 도착하면 비운다 —
   // 그 시점부터의 제출은 새 주문 의도이므로 새 키를 써야 한다.
   const pendingAttemptRef = useRef<{ key: string; fingerprint: string } | null>(null);
+  // 계정이 바뀌면 이전 계정의 진행 중 요청은 이 화면과 무관해진다. 세대를 세어
+  // 응답이 돌아왔을 때 세대가 다르면 아무 상태도 건드리지 않는다.
+  const submitGenerationRef = useRef(0);
+  const inFlightAbortRef = useRef<AbortController | null>(null);
 
   const normalizedAmount = normalizeDecimalInput(amount);
   const amountNumber = Number(normalizedAmount);
@@ -137,6 +141,25 @@ const OrderForm = ({
       }
     };
   }, []);
+
+  // 계정이 바뀌면 이전 계정에 속한 모든 진행 중 작업을 무효화한다.
+  //
+  // 이것을 하지 않으면 A의 주문 응답이 늦게 도착해 B의 메시지·제출 상태를 덮고,
+  // A 토큰을 캡처한 onOrderAccepted까지 실행된다. 지연된 시장가 새로고침 타이머도
+  // 같은 경로다. 멱등성 키도 계정에 묶여 있으므로 함께 버린다.
+  useEffect(() => {
+    submitGenerationRef.current += 1;
+    inFlightAbortRef.current?.abort();
+    inFlightAbortRef.current = null;
+    pendingAttemptRef.current = null;
+    if (marketRefreshTimerRef.current !== null) {
+      window.clearTimeout(marketRefreshTimerRef.current);
+      marketRefreshTimerRef.current = null;
+    }
+    setIsSubmitting(false);
+    setSubmitMessage(null);
+    setSubmitError(null);
+  }, [authToken]);
 
   useEffect(() => {
     if (!userEditedPrice) {
@@ -248,9 +271,17 @@ const OrderForm = ({
     }
     const idempotencyKey = pendingAttemptRef.current.key;
 
+    // 이 요청이 속한 계정 세대를 붙잡아 둔다. 응답이 돌아왔을 때 세대가 달라졌으면
+    // 그 사이 계정이 바뀐 것이므로 지금 화면에 아무것도 반영하면 안 된다.
+    const generation = submitGenerationRef.current;
+    const controller = new AbortController();
+    inFlightAbortRef.current?.abort();
+    inFlightAbortRef.current = controller;
+
     setIsSubmitting(true);
     try {
-      const result = await createOrder(authToken, orderInput, idempotencyKey);
+      const result = await createOrder(authToken, orderInput, idempotencyKey, controller.signal);
+      if (submitGenerationRef.current !== generation) return; // 계정이 바뀌었다
       pendingAttemptRef.current = null; // 서버가 응답했다 — 이 시도는 끝났다
 
       // 202(PENDING)는 "주문은 있는데 그 뒤를 서버가 확정하지 못했다"이다. 접수됐다고
@@ -280,6 +311,8 @@ const OrderForm = ({
         }, 500);
       }
     } catch (err) {
+      // 계정이 바뀐 뒤 도착한 실패(취소된 요청 포함)는 지금 화면과 무관하다.
+      if (submitGenerationRef.current !== generation) return;
       // ApiError는 서버가 응답했다는 뜻이다. 응답이 없는 network error에서만 키를 남긴다.
       if (err instanceof ApiError) {
         pendingAttemptRef.current = null;
@@ -290,7 +323,13 @@ const OrderForm = ({
       }
       setSubmitError(orderFailureMessage(err));
     } finally {
-      setIsSubmitting(false);
+      // 세대가 바뀌었으면 제출 상태는 이미 새 계정의 것이다 — 덮으면 안 된다.
+      if (submitGenerationRef.current === generation) {
+        setIsSubmitting(false);
+      }
+      if (inFlightAbortRef.current === controller) {
+        inFlightAbortRef.current = null;
+      }
     }
   };
 

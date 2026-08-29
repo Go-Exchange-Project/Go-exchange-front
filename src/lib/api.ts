@@ -173,12 +173,14 @@ export async function createOrder(
   token: string,
   input: CreateOrderInput,
   idempotencyKey: string,
+  signal?: AbortSignal,
 ): Promise<CreateOrderResponse> {
   return apiRequest<CreateOrderResponse>("/orders", {
     method: "POST",
     token,
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
+    signal,
   });
 }
 
