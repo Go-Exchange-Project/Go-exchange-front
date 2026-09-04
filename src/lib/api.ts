@@ -234,9 +234,12 @@ export async function fetchOrderBookSnapshot(
   return apiRequest<OrderBookSnapshot>(`/orderbook?${params.toString()}`);
 }
 
+// request_key는 같은 지급 요청의 재시도를 식별한다. 버튼을 다시 누르는 것과
+// 네트워크 재시도를 구분하는 것이 목적이므로, 재시도할 때는 같은 키를 다시
+// 보내야 한다. 호출할 때마다 새로 만들면 멱등이 무의미해진다.
 export async function fundWallet(
   token: string,
-  input: { coin_symbol: string; amount: string },
+  input: { coin_symbol: string; amount: string; request_key: string },
 ): Promise<{ message: string; wallet: Wallet }> {
   if (!DEV_TOOLS_TOKEN) {
     throw new ApiError(404, "DEV_TOOLS_DISABLED", "Development funding is disabled");

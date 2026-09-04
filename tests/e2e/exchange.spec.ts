@@ -1007,6 +1007,9 @@ async function fundWallet(
     data: {
       coin_symbol: coinSymbol,
       amount,
+      // 호출마다 새 키다. 같은 사용자에게 두 번 지급하는 테스트가 여럿 있고,
+      // 그것들은 재시도가 아니라 실제로 두 번 지급하려는 것이다.
+      request_key: newIdempotencyKey(),
     },
   });
   test.skip(
