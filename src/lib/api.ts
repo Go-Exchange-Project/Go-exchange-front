@@ -41,6 +41,21 @@ export interface Order {
   created_at: string;
 }
 
+export interface TransferRequest {
+  id: number;
+  direction: "DEPOSIT" | "WITHDRAWAL";
+  rail: "BANK" | "CHAIN";
+  asset: string;
+  amount: string;
+  fee_amount: string;
+  status: "RECEIVED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  external_ref: string | null;
+  // delayed는 PROCESSING이면서 운영자 확인 표시가 켜졌는지만 알려준다. 그 시각과
+  // 사유(review_reason 등)는 운영자용이라 이 응답에 없다(백엔드 설계 §8.7).
+  delayed: boolean;
+  created_at: string;
+}
+
 export interface Trade {
   id: number;
   idempotency_key: string;
@@ -253,6 +268,42 @@ export async function fundWallet(
     },
     body: JSON.stringify(input),
   });
+}
+
+export interface TransferInput {
+  rail: "BANK" | "CHAIN";
+  asset: string;
+  amount: string;
+  client_request_key: string;
+}
+
+export async function requestDeposit(
+  token: string,
+  input: TransferInput,
+): Promise<{ transfer: TransferRequest }> {
+  return apiRequest<{ transfer: TransferRequest }>("/transfers/deposits", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function requestWithdrawal(
+  token: string,
+  input: TransferInput,
+): Promise<{ transfer: TransferRequest }> {
+  return apiRequest<{ transfer: TransferRequest }>("/transfers/withdrawals", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchTransfers(
+  token: string,
+  limit = 20,
+): Promise<{ transfers: TransferRequest[] }> {
+  return apiRequest<{ transfers: TransferRequest[] }>(`/transfers?limit=${limit}`, { token });
 }
 
 async function apiRequest<T>(
