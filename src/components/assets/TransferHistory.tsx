@@ -5,9 +5,11 @@ interface TransferHistoryProps {
 }
 
 // transferStatusLabel은 백엔드 설계 §8.7을 따른다: PROCESSING+확인 표시가 있으면
-// "처리 지연", COMPLETED/FAILED는 완료/실패다. §8.7에 명시가 없는 RECEIVED와
-// 확인 표시 없는 PROCESSING은 중립적인 문구로 채운다 — 운영자용 사유
-// (review_reason 등)는 애초에 응답에 없으므로 이 함수가 볼 수도 없다.
+// "처리 지연", COMPLETED는 완료다. §8.7에 명시가 없는 RECEIVED와 확인 표시 없는
+// PROCESSING은 중립적인 문구로 채운다 — 운영자용 사유(review_reason 등)는
+// 애초에 응답에 없으므로 이 함수가 볼 수도 없다. FAILED는 failure_reason이
+// 있으면 함께 보여준다 — 그건 review_reason과 달리 사용자에게 공개해도 되는
+// 사유다.
 function transferStatusLabel(transfer: TransferRequest): string {
   switch (transfer.status) {
     case "RECEIVED":
@@ -17,7 +19,7 @@ function transferStatusLabel(transfer: TransferRequest): string {
     case "COMPLETED":
       return "완료";
     case "FAILED":
-      return "실패";
+      return transfer.failure_reason ? `실패 · ${transfer.failure_reason}` : "실패";
     default:
       return transfer.status;
   }

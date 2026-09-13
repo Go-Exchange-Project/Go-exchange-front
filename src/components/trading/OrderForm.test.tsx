@@ -350,7 +350,7 @@ describe("OrderForm idempotency key lifecycle", () => {
 
   // 503은 서버가 답한 것이다. REJECTED는 안내대로 새 키가 필요하고, UNKNOWN도 같은 키
   // 반복 제출로는 풀리지 않는다.
-  it("creates a new key after a 503 outcome response", async () => {
+  it("creates a new key after a REJECTED 503 response", async () => {
     createOrderMock.mockRejectedValueOnce(
       new ApiError(503, "SERVICE_UNAVAILABLE", "order was not accepted", {
         order_id: 42,
@@ -525,5 +525,133 @@ describe("OrderForm idempotency key lifecycle", () => {
     });
     expect(screen.queryByTestId("order-error")).not.toBeInTheDocument();
     expect(onOrderAccepted).toHaveBeenCalled();
+  });
+
+  // 202 PENDING은 주문이 이미 존재한다는 뜻이다(위 테스트). 여기서 키를 버리면
+  // 사용자가 다시 제출할 때 새 키로 두 번째 주문이 생긴다 — UNKNOWN과 같은 이유로
+  // 키를 유지해야 한다.
+  it("retains the key after a 202 PENDING response", async () => {
+    createOrderMock.mockResolvedValueOnce({
+      order_id: 7,
+      status: "PENDING",
+      idempotent_replay: false,
+    });
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // UNKNOWN도 REJECTED와 달리 보상이 끝나지 않았다 — 같은 키로 재시도해도 서버가
+  // 같은 상태를 돌려준다는 안내와 일관되게 키를 유지해야 한다.
+  it("reuses the same key after an UNKNOWN 503 response", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(503, "SERVICE_UNAVAILABLE", "state could not be finalized", {
+        order_id: 43,
+        status: "UNKNOWN",
+      }),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // 202 PENDING 성공 응답("retains the key after a 202 PENDING response")과는 다른
+  // 경로다 — 여기는 오류 응답(catch)의 data에 status: "PENDING"이 실린 경우로, 서버가
+  // 확정하지 못한 상태를 오류로도 보고할 수 있다는 뜻이다. UNKNOWN과 같은 이유로
+  // 키를 유지한다.
+  it("reuses the same key after a 503 response carrying PENDING", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(503, "SERVICE_UNAVAILABLE", "state could not be finalized", {
+        order_id: 44,
+        status: "PENDING",
+      }),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // 본문 없는 일반 5xx(프록시·게이트웨이)는 서버가 요청을 커밋했는지 알 수 없다 —
+  // network error와 같게 취급해 키를 유지한다.
+  it("reuses the same key after a 5xx response with no order detail", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(502, "BAD_GATEWAY", "upstream error"),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // 408·429는 서버가 요청을 판정한 결과가 아니다 — 처리 여부가 모호하거나(408)
+  // 애초에 처리되지 않았다(429). 키를 버리면 실제로 처리된 요청이 새 키로 중복된다.
+  it("reuses the same key after a 408 response", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(408, "REQUEST_TIMEOUT", "request timeout"),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
+  // 확정적 4xx(408·429 제외)는 서버가 요청 자체를 판정해 거절했다는 뜻이다. 같은
+  // 키로 다시 보내도 같은 결과가 반복되므로 새 키가 필요하다.
+  it("creates a new key after a definitive 4xx response", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(422, "VALIDATION_ERROR", "invalid amount"),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).not.toBe(keyOfCall(0));
+  });
+
+  it("reuses the same key after a 429 response", async () => {
+    createOrderMock.mockRejectedValueOnce(
+      new ApiError(429, "TOO_MANY_REQUESTS", "rate limited"),
+    );
+    render(<OrderForm {...baseProps} />);
+
+    submitLimitBuy("1");
+    await waitFor(() => expect(screen.getByTestId("order-error")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("submit-order"));
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
   });
 });

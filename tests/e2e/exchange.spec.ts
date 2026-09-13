@@ -240,6 +240,143 @@ test("user can deposit through the assets page and see the balance increase afte
   );
 });
 
+// 첫 출금 요청의 응답이 유실된 뒤 재시도해도, 서버는 이미 그 요청을 커밋했을
+// 수 있다(RequestWithdrawal이 잠금 트랜잭션 커밋 후 트랜잭션 밖에서 외부
+// Submit을 부른다). client_request_key를 유지해야 재시도가 새 요청·새 잠금을
+// 만들지 않는다.
+test("retrying a withdrawal after a lost response does not double-lock funds", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail("assets-withdraw-retry");
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Withdraw Retry");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("fund-krw").click();
+  await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+
+  await page.getByTestId("nav-assets").click();
+  await page.getByTestId("tab-withdrawal").click();
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText("1000000");
+
+  // 첫 호출만 가로챈다: 서버에는 실제로 보내되(route.fetch()) 브라우저에는
+  // 응답이 유실된 것처럼 보여준다(route.abort()). 재시도는 그대로 통과시킨다.
+  let interceptedRequests = 0;
+  await page.route("**/transfers/withdrawals", async (route) => {
+    interceptedRequests += 1;
+    if (interceptedRequests === 1) {
+      await route.fetch();
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByTestId("transfer-amount").fill("100000");
+  await page.getByTestId("submit-withdrawal").click();
+  await expect(page.getByTestId("transfer-error")).toBeVisible();
+
+  // 재시도 — 금액을 바꾸지 않는다. TransferForm이 같은 client_request_key를
+  // 재사용해야 한다.
+  await page.getByTestId("submit-withdrawal").click();
+  await expect(page.getByTestId("transfer-message")).toContainText(
+    "출금 요청이 접수됐습니다",
+  );
+
+  await page.unroute("**/transfers/withdrawals");
+
+  const token = await page.evaluate(() =>
+    localStorage.getItem("goexchange.auth.token"),
+  );
+  expect(token).toBeTruthy();
+
+  const transfers = await fetchTransfers(request, token as string);
+  const withdrawals = transfers.transfers.filter(
+    (t) => t.direction === "WITHDRAWAL",
+  );
+  expect(withdrawals).toHaveLength(1);
+  expect(withdrawals[0].external_ref).toBeTruthy();
+
+  await page.getByTestId("refresh-assets").click();
+  await expect(page.getByTestId("asset-balance-locked-KRW")).toHaveText(
+    "100000",
+  );
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText(
+    "900000",
+  );
+});
+
+test("retrying an order after a lost response does not double-submit", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail("order-retry");
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Order Retry");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("fund-krw").click();
+  await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+
+  // "**/orders"는 주문 목록 조회(GET)에도 걸린다. POST(제출)인 첫 요청만
+  // 가로채 서버에는 실제로 보내되(route.fetch()) 브라우저에는 응답이 유실된
+  // 것처럼 보여준다(route.abort()). 그 외 요청(GET 목록·재시도 POST)은 그대로
+  // 통과시킨다.
+  let interceptedPostRequests = 0;
+  await page.route("**/orders", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    interceptedPostRequests += 1;
+    if (interceptedPostRequests === 1) {
+      await route.fetch();
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByTestId("order-price").fill("5000");
+  await page.getByTestId("order-amount").fill("1");
+  await page.getByTestId("submit-order").click();
+  await expect(page.getByTestId("order-error")).toBeVisible();
+
+  // 재시도 — 입력을 바꾸지 않는다. OrderForm이 같은 Idempotency-Key를 재사용해야
+  // 한다.
+  await page.getByTestId("submit-order").click();
+  await expect(page.getByTestId("order-message")).toContainText("주문 접수");
+
+  await page.unroute("**/orders");
+
+  const token = await page.evaluate(() =>
+    localStorage.getItem("goexchange.auth.token"),
+  );
+  expect(token).toBeTruthy();
+
+  const orders = await fetchOrders(request, token as string);
+  expect(orders.orders).toHaveLength(1);
+
+  await expect(page.getByTestId("krw-available")).toHaveText("994997.5");
+  await expect(page.getByTestId("krw-locked")).toHaveText("5002.5");
+
+  // 이 파일의 테스트는 하나의 BTC 오더북을 공유한다(1387행 주석 참조). 미체결로
+  // 남기면 뒤 테스트의 체결 상대가 되어 그 테스트를 조용히 깨뜨리므로 되돌린다.
+  await cancelOrder(request, token as string, orders.orders[0].id);
+  await waitForOrderStatus(request, token as string, orders.orders[0].id, "CANCELLED");
+});
+
 // 브라우저가 실제로 헤더를 붙이는지는 단위 테스트로 알 수 없다. 빠지면 서버가 400을
 // 내므로 주문 자체가 되지 않는다.
 test("browser order submission carries an Idempotency-Key header", async ({ page }) => {

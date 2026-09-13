@@ -53,6 +53,9 @@ export interface TransferRequest {
   // delayed는 PROCESSING이면서 운영자 확인 표시가 켜졌는지만 알려준다. 그 시각과
   // 사유(review_reason 등)는 운영자용이라 이 응답에 없다(백엔드 설계 §8.7).
   delayed: boolean;
+  // failure_reason은 review_reason과 다르다 — FAILED 확정 시 결정된, 사용자에게
+  // 보여줘도 되는 사유다. FAILED가 아니면 빈 문자열이다.
+  failure_reason: string;
   created_at: string;
 }
 

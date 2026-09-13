@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
+  ApiError,
   TransferInput,
   TransferRequest,
   isUnauthorizedError,
   requestDeposit,
   requestWithdrawal,
 } from "@/lib/api";
+import { newIdempotencyKey } from "@/lib/idempotencyKey";
 
 export type TransferDirection = "deposit" | "withdrawal";
 
@@ -41,22 +43,44 @@ const TransferForm = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 응답을 받지 못한 시도의 키를 들고 있는다. OrderForm.tsx와 같은
+  // pendingAttemptRef+fingerprint 패턴이지만 키를 버리는 조건은 더 단순하다
+  // (OrderForm은 주문 실패 detail·408·429까지 구분한다 —
+  // shouldRetainIdempotencyKeyAfterError). RequestWithdrawal은 요청·잠금
+  // 분개를 먼저 커밋한 뒤에야 응답을 만든다(외부 Submit 실패 자체는 삼켜져
+  // RECEIVED로 정상 응답된다 — transfer_service.go의 dispatchAndReload). 그
+  // 커밋 이후, 응답을 만드는 마지막 재조회가 실패하면 요청·잠금은 이미
+  // 커밋된 채로 5xx가 내려간다. 그때 키를 버리면 재시도가 새 키로 가서 서버
+  // 멱등성(같은 client_request_key)을 우회해 잠금이 하나 더 생긴다.
+  // 프록시·게이트웨이가 만드는 모호한 5xx도 같은 이유로 구분할 수 없다.
+  // 그래서 5xx는 network error와 같게 취급해 키를 유지한다 — 4xx(서버가
+  // 요청 자체를 판정해 거절함)에서만 버린다.
+  const pendingAttemptRef = useRef<{ key: string; fingerprint: string } | null>(null);
 
   const submit = async () => {
     setIsSubmitting(true);
     setMessage(null);
     setError(null);
+
     try {
+      const rail = railForAsset(selectedAsset);
+      const fingerprint = JSON.stringify({ direction, rail, asset: selectedAsset, amount });
+      if (!pendingAttemptRef.current || pendingAttemptRef.current.fingerprint !== fingerprint) {
+        pendingAttemptRef.current = { key: newIdempotencyKey(), fingerprint };
+      }
+      const clientRequestKey = pendingAttemptRef.current.key;
+
       const input: TransferInput = {
-        rail: railForAsset(selectedAsset),
+        rail,
         asset: selectedAsset,
         amount,
-        client_request_key: crypto.randomUUID(),
+        client_request_key: clientRequestKey,
       };
       const result =
         direction === "deposit"
           ? await requestDeposit(token, input)
           : await requestWithdrawal(token, input);
+      pendingAttemptRef.current = null; // 성공 — 이 시도는 끝났다
       setMessage(
         direction === "deposit"
           ? `입금 요청이 접수됐습니다 (#${result.transfer.id})`
@@ -65,6 +89,12 @@ const TransferForm = ({
       setAmount("");
       onSubmitted(result.transfer);
     } catch (err) {
+      // 4xx는 서버가 요청을 판정했다는 뜻이다 — 같은 키를 다시 보내도 같은
+      // 결과가 반복되므로 버린다. network error(응답 없음)와 5xx는 요청이
+      // 서버에 도달해 커밋됐을 수 있으므로 키를 유지한다.
+      if (err instanceof ApiError && err.status < 500) {
+        pendingAttemptRef.current = null;
+      }
       if (isUnauthorizedError(err)) {
         onAuthExpired();
         return;
@@ -115,7 +145,11 @@ const TransferForm = ({
           {message}
         </div>
       )}
-      {error && <div className="mt-2 text-destructive">{error}</div>}
+      {error && (
+        <div className="mt-2 text-destructive" data-testid="transfer-error">
+          {error}
+        </div>
+      )}
     </div>
   );
 };
