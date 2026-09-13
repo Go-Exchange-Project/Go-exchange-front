@@ -41,6 +41,24 @@ export interface Order {
   created_at: string;
 }
 
+export interface TransferRequest {
+  id: number;
+  direction: "DEPOSIT" | "WITHDRAWAL";
+  rail: "BANK" | "CHAIN";
+  asset: string;
+  amount: string;
+  fee_amount: string;
+  status: "RECEIVED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  external_ref: string | null;
+  // delayed는 PROCESSING이면서 운영자 확인 표시가 켜졌는지만 알려준다. 그 시각과
+  // 사유(review_reason 등)는 운영자용이라 이 응답에 없다(백엔드 설계 §8.7).
+  delayed: boolean;
+  // failure_reason은 review_reason과 다르다 — FAILED 확정 시 결정된, 사용자에게
+  // 보여줘도 되는 사유다. FAILED가 아니면 빈 문자열이다.
+  failure_reason: string;
+  created_at: string;
+}
+
 export interface Trade {
   id: number;
   idempotency_key: string;
@@ -234,9 +252,12 @@ export async function fetchOrderBookSnapshot(
   return apiRequest<OrderBookSnapshot>(`/orderbook?${params.toString()}`);
 }
 
+// request_key는 같은 지급 요청의 재시도를 식별한다. 버튼을 다시 누르는 것과
+// 네트워크 재시도를 구분하는 것이 목적이므로, 재시도할 때는 같은 키를 다시
+// 보내야 한다. 호출할 때마다 새로 만들면 멱등이 무의미해진다.
 export async function fundWallet(
   token: string,
-  input: { coin_symbol: string; amount: string },
+  input: { coin_symbol: string; amount: string; request_key: string },
 ): Promise<{ message: string; wallet: Wallet }> {
   if (!DEV_TOOLS_TOKEN) {
     throw new ApiError(404, "DEV_TOOLS_DISABLED", "Development funding is disabled");
@@ -250,6 +271,42 @@ export async function fundWallet(
     },
     body: JSON.stringify(input),
   });
+}
+
+export interface TransferInput {
+  rail: "BANK" | "CHAIN";
+  asset: string;
+  amount: string;
+  client_request_key: string;
+}
+
+export async function requestDeposit(
+  token: string,
+  input: TransferInput,
+): Promise<{ transfer: TransferRequest }> {
+  return apiRequest<{ transfer: TransferRequest }>("/transfers/deposits", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function requestWithdrawal(
+  token: string,
+  input: TransferInput,
+): Promise<{ transfer: TransferRequest }> {
+  return apiRequest<{ transfer: TransferRequest }>("/transfers/withdrawals", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchTransfers(
+  token: string,
+  limit = 20,
+): Promise<{ transfers: TransferRequest[] }> {
+  return apiRequest<{ transfers: TransferRequest[] }>(`/transfers?limit=${limit}`, { token });
 }
 
 async function apiRequest<T>(

@@ -10,9 +10,9 @@ import TradeHistory, {
 import AuthPanel from "@/components/trading/AuthPanel";
 import { mockCoins } from "@/components/trading/mockData";
 import { OrderBookEntry } from "@/components/trading/types";
+import { useAuthSession } from "@/hooks/useAuthSession";
 import {
   AuthResponse,
-  AuthUser,
   Order,
   Trade,
   Wallet,
@@ -27,8 +27,6 @@ import { MarketRules, fallbackKRWMarketRules } from "@/lib/orderPolicy";
 import { webSocketReconnectDelay } from "@/lib/reconnect";
 import { fetchKRWMarketTickers } from "@/lib/upbitTicker";
 
-const TOKEN_STORAGE_KEY = "goexchange.auth.token";
-const USER_STORAGE_KEY = "goexchange.auth.user";
 const WEBSOCKET_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080/ws";
 const UPBIT_REST_POLL_INTERVAL_MS = 10_000;
 
@@ -81,18 +79,7 @@ const Index = () => {
     coins.map((coin) => [coin.symbol, coin.price]),
   );
   const [currentPrice, setCurrentPrice] = useState(selectedCoin.price);
-  const [authToken, setAuthToken] = useState<string | null>(() =>
-    localStorage.getItem(TOKEN_STORAGE_KEY),
-  );
-  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
-    const raw = localStorage.getItem(USER_STORAGE_KEY);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as AuthUser;
-    } catch {
-      return null;
-    }
-  });
+  const { authToken, authUser, applyAuth, clearAuthSession } = useAuthSession();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [accountTrades, setAccountTrades] = useState<Trade[]>([]);
@@ -102,14 +89,11 @@ const Index = () => {
   );
 
   const clearAuthState = useCallback(() => {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    localStorage.removeItem(USER_STORAGE_KEY);
-    setAuthToken(null);
-    setAuthUser(null);
+    clearAuthSession();
     setWallets([]);
     setOrders([]);
     setAccountTrades([]);
-  }, []);
+  }, [clearAuthSession]);
 
   const handleAuthExpired = useCallback(() => {
     clearAuthState();
@@ -146,13 +130,13 @@ const Index = () => {
     }
   }, [authToken, handleAuthExpired]);
 
-  const handleAuth = useCallback((auth: AuthResponse) => {
-    localStorage.setItem(TOKEN_STORAGE_KEY, auth.token);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(auth.user));
-    setAuthToken(auth.token);
-    setAuthUser(auth.user);
-    setAccountError(null);
-  }, []);
+  const handleAuth = useCallback(
+    (auth: AuthResponse) => {
+      applyAuth(auth);
+      setAccountError(null);
+    },
+    [applyAuth],
+  );
 
   const handleLogout = useCallback(() => {
     clearAuthState();

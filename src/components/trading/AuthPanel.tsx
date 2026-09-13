@@ -113,7 +113,11 @@ const AuthPanel = ({
       setAuthError(null);
       setAccountMessage(null);
       try {
-        const result = await fundWallet(token, { coin_symbol: coinSymbol, amount });
+        const result = await fundWallet(token, {
+          coin_symbol: coinSymbol,
+          amount,
+          request_key: crypto.randomUUID(),
+        });
         setAccountMessage(
           `${result.wallet.coin_symbol} 주문 가능 ${result.wallet.available_balance}`,
         );

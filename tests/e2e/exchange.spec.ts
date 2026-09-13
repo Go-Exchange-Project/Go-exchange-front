@@ -61,6 +61,21 @@ interface TradesResponse {
   trades: TradeResponse[];
 }
 
+interface TransferResponse {
+  id: number;
+  direction: "DEPOSIT" | "WITHDRAWAL";
+  rail: "BANK" | "CHAIN";
+  asset: string;
+  amount: string;
+  status: "RECEIVED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  external_ref: string | null;
+  delayed: boolean;
+}
+
+interface TransfersResponse {
+  transfers: TransferResponse[];
+}
+
 // 취소는 202 "접수"로 응답한다. 이 시점에는 주문이 아직 오더북에 있을 수 있고
 // 해제 금액도 확정되지 않았으므로, 최종 상태는 주문 조회로 확인해야 한다.
 interface CancelOrderResponse {
@@ -109,7 +124,9 @@ test("UI keeps rendering when Upbit ticker fails and selected coin changes accou
 
   await page.getByText("ETH/KRW").first().click();
 
-  await expect(page.getByText("ETH available")).toBeVisible();
+  // "ETH available"(영문)은 UI 한글화(22dff81) 이후로 어디에도 렌더링되지 않는
+  // 문구다 — 계정 패널이 ETH로 전환됐다는 같은 사실은 바로 다음 testid 단언이
+  // 이미 본다.
   await expect(page.getByTestId("selected-asset-available")).toHaveText("0");
   await expect(page.getByText("수량 (ETH)")).toBeVisible();
   await expect(page.getByTestId("submit-order")).toHaveText("매수 ETH");
@@ -170,6 +187,194 @@ test("user can register, fund KRW, place a buy order, and cancel it from the UI"
   await expect(page.getByTestId("krw-available")).toHaveText("1000000");
   await expect(page.getByTestId("krw-locked")).toHaveText("0");
   await expect(page.getByTestId("open-order-count")).toHaveText("0");
+});
+
+// 사용자가 입금 과정을 체험하는 경로는 가짜 입금이고, 테스트 준비용 자산은
+// 개발용 지급이다(설계 §5.1 용도 분리) — 이 테스트는 전자만 본다.
+test("user can deposit through the assets page and see the balance increase after a fake completion notice", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail("assets-deposit");
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Assets");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("nav-assets").click();
+  await expect(page.getByTestId("asset-balance-available-KRW")).toBeVisible();
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText("0");
+
+  await page.getByTestId("transfer-amount").fill("500000");
+  await page.getByTestId("submit-deposit").click();
+  await expect(page.getByTestId("transfer-message")).toContainText(
+    "입금 요청이 접수됐습니다",
+  );
+
+  const token = await page.evaluate(() =>
+    localStorage.getItem("goexchange.auth.token"),
+  );
+  expect(token).toBeTruthy();
+
+  const transfer = await waitForTransferStatus(
+    request,
+    token as string,
+    "PROCESSING",
+  );
+  expect(transfer.external_ref).toBeTruthy();
+
+  await sendTransferCallback(request, token as string, transfer.external_ref as string, "SUCCESS");
+
+  await page.getByTestId("refresh-assets").click();
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText(
+    "500000",
+  );
+
+  await page.getByTestId("tab-history").click();
+  await expect(page.getByTestId(`transfer-status-${transfer.id}`)).toHaveText(
+    "완료",
+  );
+});
+
+// 첫 출금 요청의 응답이 유실된 뒤 재시도해도, 서버는 이미 그 요청을 커밋했을
+// 수 있다(RequestWithdrawal이 잠금 트랜잭션 커밋 후 트랜잭션 밖에서 외부
+// Submit을 부른다). client_request_key를 유지해야 재시도가 새 요청·새 잠금을
+// 만들지 않는다.
+test("retrying a withdrawal after a lost response does not double-lock funds", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail("assets-withdraw-retry");
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Withdraw Retry");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("fund-krw").click();
+  await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+
+  await page.getByTestId("nav-assets").click();
+  await page.getByTestId("tab-withdrawal").click();
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText("1000000");
+
+  // 첫 호출만 가로챈다: 서버에는 실제로 보내되(route.fetch()) 브라우저에는
+  // 응답이 유실된 것처럼 보여준다(route.abort()). 재시도는 그대로 통과시킨다.
+  let interceptedRequests = 0;
+  await page.route("**/transfers/withdrawals", async (route) => {
+    interceptedRequests += 1;
+    if (interceptedRequests === 1) {
+      await route.fetch();
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByTestId("transfer-amount").fill("100000");
+  await page.getByTestId("submit-withdrawal").click();
+  await expect(page.getByTestId("transfer-error")).toBeVisible();
+
+  // 재시도 — 금액을 바꾸지 않는다. TransferForm이 같은 client_request_key를
+  // 재사용해야 한다.
+  await page.getByTestId("submit-withdrawal").click();
+  await expect(page.getByTestId("transfer-message")).toContainText(
+    "출금 요청이 접수됐습니다",
+  );
+
+  await page.unroute("**/transfers/withdrawals");
+
+  const token = await page.evaluate(() =>
+    localStorage.getItem("goexchange.auth.token"),
+  );
+  expect(token).toBeTruthy();
+
+  const transfers = await fetchTransfers(request, token as string);
+  const withdrawals = transfers.transfers.filter(
+    (t) => t.direction === "WITHDRAWAL",
+  );
+  expect(withdrawals).toHaveLength(1);
+  expect(withdrawals[0].external_ref).toBeTruthy();
+
+  await page.getByTestId("refresh-assets").click();
+  await expect(page.getByTestId("asset-balance-locked-KRW")).toHaveText(
+    "100000",
+  );
+  await expect(page.getByTestId("asset-balance-available-KRW")).toHaveText(
+    "900000",
+  );
+});
+
+test("retrying an order after a lost response does not double-submit", async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail("order-retry");
+
+  await page.goto("/");
+  await page.getByTestId("auth-mode-register").click();
+  await page.getByTestId("auth-name").fill("E2E Order Retry");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByTestId("auth-status")).toHaveText("로그인됨");
+
+  await page.getByTestId("fund-krw").click();
+  await expect(page.getByTestId("krw-available")).toHaveText("1000000");
+
+  // "**/orders"는 주문 목록 조회(GET)에도 걸린다. POST(제출)인 첫 요청만
+  // 가로채 서버에는 실제로 보내되(route.fetch()) 브라우저에는 응답이 유실된
+  // 것처럼 보여준다(route.abort()). 그 외 요청(GET 목록·재시도 POST)은 그대로
+  // 통과시킨다.
+  let interceptedPostRequests = 0;
+  await page.route("**/orders", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    interceptedPostRequests += 1;
+    if (interceptedPostRequests === 1) {
+      await route.fetch();
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.getByTestId("order-price").fill("5000");
+  await page.getByTestId("order-amount").fill("1");
+  await page.getByTestId("submit-order").click();
+  await expect(page.getByTestId("order-error")).toBeVisible();
+
+  // 재시도 — 입력을 바꾸지 않는다. OrderForm이 같은 Idempotency-Key를 재사용해야
+  // 한다.
+  await page.getByTestId("submit-order").click();
+  await expect(page.getByTestId("order-message")).toContainText("주문 접수");
+
+  await page.unroute("**/orders");
+
+  const token = await page.evaluate(() =>
+    localStorage.getItem("goexchange.auth.token"),
+  );
+  expect(token).toBeTruthy();
+
+  const orders = await fetchOrders(request, token as string);
+  expect(orders.orders).toHaveLength(1);
+
+  await expect(page.getByTestId("krw-available")).toHaveText("994997.5");
+  await expect(page.getByTestId("krw-locked")).toHaveText("5002.5");
+
+  // 이 파일의 테스트는 하나의 BTC 오더북을 공유한다(1387행 주석 참조). 미체결로
+  // 남기면 뒤 테스트의 체결 상대가 되어 그 테스트를 조용히 깨뜨리므로 되돌린다.
+  await cancelOrder(request, token as string, orders.orders[0].id);
+  await waitForOrderStatus(request, token as string, orders.orders[0].id, "CANCELLED");
 });
 
 // 브라우저가 실제로 헤더를 붙이는지는 단위 테스트로 알 수 없다. 빠지면 서버가 400을
@@ -1007,6 +1212,9 @@ async function fundWallet(
     data: {
       coin_symbol: coinSymbol,
       amount,
+      // 호출마다 새 키다. 같은 사용자에게 두 번 지급하는 테스트가 여럿 있고,
+      // 그것들은 재시도가 아니라 실제로 두 번 지급하려는 것이다.
+      request_key: newIdempotencyKey(),
     },
   });
   test.skip(
@@ -1082,6 +1290,61 @@ async function fetchTrades(request: APIRequestContext, token: string) {
   return responseData<TradesResponse>(response);
 }
 
+async function fetchTransfers(request: APIRequestContext, token: string) {
+  const response = await request.get(`${apiBaseURL}/transfers?limit=20`, {
+    headers: authHeaders(token),
+  });
+  expect(response.ok()).toBeTruthy();
+  return responseData<TransfersResponse>(response);
+}
+
+async function waitForTransferStatus(
+  request: APIRequestContext,
+  token: string,
+  status: TransferResponse["status"],
+) {
+  let latest: TransferResponse | undefined;
+  await expect
+    .poll(async () => {
+      const transfers = await fetchTransfers(request, token);
+      latest = transfers.transfers[0];
+      return latest?.status;
+    })
+    .toBe(status);
+  return latest as TransferResponse;
+}
+
+// sendTransferCallback은 가짜 은행·가짜 체인이 우리에게 알림을 보내는 것을
+// 흉내 낸다. 운영 라우트가 아니라 dev 그룹에 있으므로, /dev/wallets/fund와
+// 같은 계약(로그인 토큰 + 개발자 토큰)을 요구한다.
+async function sendTransferCallback(
+  request: APIRequestContext,
+  token: string,
+  externalRef: string,
+  outcome: "SUCCESS" | "FAILURE",
+) {
+  const response = await request.post(`${apiBaseURL}/dev/transfers/callback`, {
+    headers: {
+      ...authHeaders(token),
+      "X-GoExchange-Dev-Token": devToolsToken,
+    },
+    data: {
+      external_ref: externalRef,
+      event_id: `e2e-callback-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      outcome,
+    },
+  });
+  test.skip(
+    response.status() === 404,
+    "backend dev transfer callback endpoint is disabled; set GOEXCHANGE_ENABLE_DEV_TOOLS=true",
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `transfer callback failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+}
+
 async function expectErrorCode(
   response: Awaited<ReturnType<APIRequestContext["get"]>>,
   code: string,
@@ -1155,6 +1418,13 @@ function uniqueEmail(role: string) {
   return `e2e-${role}-${suffix}@example.com`;
 }
 
+// accounts.asset은 varchar(16)이다(백엔드 migration 009). 접미사(타임스탬프+무작위)에
+// 항상 자리를 남겨야 유일성이 유지되므로, 긴 prefix는 자른다. 이전 구현은
+// "E2E"+prefix+13자리 타임스탬프+6자 무작위를 그대로 이어붙여 항상 16자를
+// 넘겼다 — 원장 전환 이전의 더 넓은 coin_symbol 컬럼 기준으로 짜인 채 남아 있던
+// 헬퍼였다.
 function uniqueCoinSymbol(prefix: string) {
-  return `E2E${prefix}${Date.now()}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
+  const maxPrefixLength = Math.max(0, 16 - suffix.length);
+  return `${prefix.slice(0, maxPrefixLength)}${suffix}`.toUpperCase();
 }

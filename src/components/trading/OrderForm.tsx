@@ -7,6 +7,7 @@ import {
   isUnauthorizedError,
   orderFailureDetail,
 } from "@/lib/api";
+import { newIdempotencyKey } from "@/lib/idempotencyKey";
 import {
   MarketRules,
   addKRWTick,
@@ -282,15 +283,16 @@ const OrderForm = ({
     try {
       const result = await createOrder(authToken, orderInput, idempotencyKey, controller.signal);
       if (submitGenerationRef.current !== generation) return; // 계정이 바뀌었다
-      pendingAttemptRef.current = null; // 서버가 응답했다 — 이 시도는 끝났다
 
       // 202(PENDING)는 "주문은 있는데 그 뒤를 서버가 확정하지 못했다"이다. 접수됐다고
       // 말하면 안 되지만 실패도 아니다 — 같은 키로 다시 보내도 이 상태가 반복된다.
+      // 여기서 키를 버리면 사용자가 다시 제출할 때 새 키로 두 번째 주문이 생긴다.
       if (result.status === "PENDING") {
         setSubmitMessage(
           `주문 #${result.order_id} 접수 상태를 확정하지 못했습니다. 주문 내역에서 상태를 확인해 주세요.`,
         );
       } else {
+        pendingAttemptRef.current = null; // 확정 응답 — 이 시도는 끝났다
         setSubmitMessage(
           isMarketOrder
             ? `시장가 주문 접수 #${result.order_id}. 미체결 ${
@@ -313,8 +315,7 @@ const OrderForm = ({
     } catch (err) {
       // 계정이 바뀐 뒤 도착한 실패(취소된 요청 포함)는 지금 화면과 무관하다.
       if (submitGenerationRef.current !== generation) return;
-      // ApiError는 서버가 응답했다는 뜻이다. 응답이 없는 network error에서만 키를 남긴다.
-      if (err instanceof ApiError) {
+      if (err instanceof ApiError && !shouldRetainIdempotencyKeyAfterError(err)) {
         pendingAttemptRef.current = null;
       }
       if (isUnauthorizedError(err)) {
@@ -621,14 +622,22 @@ const OrderForm = ({
   );
 };
 
-// crypto.randomUUID는 secure context에만 있다. http로 IP 접속하면 없으므로 대체가 필요하다.
-const newIdempotencyKey = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
+// 키를 버리는 건 "이 시도로 주문이 생기지 않았거나, 새 주문에 새 키가 필요한
+// 최종 결과"가 확정될 때뿐이다. 서버에 기록이 없으면 키를 유지해도 안전하고
+// (같은 키가 새로 처리된다), 서버에 기록이 있는데 키를 버리면 중복 주문이 생긴다.
+//
+//   network error(응답 없음)                          유지 — 커밋 여부 불명
+//   5xx이고 orderFailureDetail이 null(일반 502·503·504) 유지 — 서버 커밋 여부 불명
+//   503 + REJECTED                                     폐기 — 보상 완료, 새 키 필요
+//   503 + UNKNOWN, 또는 오류 data의 PENDING             유지 — 상태 확인 안내, 재시도 아님
+//   408·429                                             유지 — 서버 처리 여부가 모호하거나 미처리
+//   그 외 4xx(400·401·403·409·422 등)                   폐기 — 서버가 요청 자체를 판정
+const shouldRetainIdempotencyKeyAfterError = (err: ApiError): boolean => {
+  if (err.status === 408 || err.status === 429) return true;
+  const detail = orderFailureDetail(err);
+  if (detail?.status === "UNKNOWN" || detail?.status === "PENDING") return true;
+  if (err.status >= 500 && !detail) return true;
+  return false;
 };
 
 // 실패 응답이 order_id와 durable outcome을 실었으면 그대로 보여 준다. 어느 쪽이든
