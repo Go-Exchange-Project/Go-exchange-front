@@ -115,6 +115,23 @@ describe("TransferForm client_request_key lifecycle", () => {
     expect(keyOfCall(1)).not.toBe(keyOfCall(0));
   });
 
+  // 429는 서버가 요청을 판정한 것이 아니라 처리하지 않고 거절한 것이다(rate
+  // limit). 같은 요청 의도의 재시도이므로 같은 키를 유지해야 한다.
+  it("reuses the same key after a 429 response", async () => {
+    requestWithdrawalMock.mockRejectedValueOnce(
+      new ApiError(429, "RATE_LIMITED", "rate limit exceeded, retry later"),
+    );
+    render(<TransferForm {...baseProps} />);
+
+    submitWithdrawal("1000");
+    await waitFor(() => expect(requestWithdrawalMock).toHaveBeenCalledTimes(1));
+
+    submitWithdrawal("1000");
+    await waitFor(() => expect(requestWithdrawalMock).toHaveBeenCalledTimes(2));
+
+    expect(keyOfCall(1)).toBe(keyOfCall(0));
+  });
+
   // 입력이 바뀌면 다른 요청이다. 같은 키를 쓰면 서버가 409로 거절한다.
   it("creates a new key when the amount changes", async () => {
     requestWithdrawalMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
